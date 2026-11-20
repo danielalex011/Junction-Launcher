@@ -1,0 +1,90 @@
+{
+  "name": "junction-launcher",
+  "version": "0.1.0",
+  "description": "A Minecraft launcher that installs mods and modpacks from both Modrinth and CurseForge. No ads, no telemetry.",
+  "main": "src/main/main.js",
+  "scripts": {
+    "start": "electron .",
+    "test": "node --test test/*.test.js",
+    "dist:win": "electron-builder --win",
+    "dist:linux": "electron-builder --linux AppImage",
+    "dist:mac": "electron-builder --mac dmg"
+  },
+  "author": "Daniel",
+  "license": "MIT",
+  "dependencies": {
+    "adm-zip": "^0.6.1",
+    "marked": "^18.2.1"
+  },
+  "devDependencies": {
+    "electron": "^45.4.1",
+    "electron-builder": "^26.18.0"
+  },
+  "productName": "Junction",
+  "build": {
+    "appId": "dk.junction.launcher",
+    "productName": "Junction",
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "src/**/*",
+      "package.json"
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "zip",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "icon": "build/icon.png",
+      "signAndEditExecutable": false
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true
+    },
+    "linux": {
+      "target": [
+        "AppImage"
+      ],
+      "icon": "build/icon.png",
+      "category": "Game"
+    },
+    "mac": {
+      "target": [
+        "dmg"
+      ],
+      "icon": "build/icon.png",
+      "category": "public.app-category.games"
+    },
+    "fileAssociations": [
+      {
+        "ext": "mrpack",
+        "name": "Modrinth modpack",
+        "description": "Modrinth modpack",
+        "role": "Viewer"
+      }
+    ],
+    "artifactName": "${productName}-${version}-${os}-${arch}.${ext}",
+    "electronLanguages": [
+      "en-US",
+      "da"
+    ],
+    "compression": "maximum"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/danielalex011/Junction-Launcher"
+  },
+  "homepage": "https://github.com/danielalex011/Junction-Launcher"
+}
