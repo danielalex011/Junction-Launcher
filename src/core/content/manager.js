@@ -295,20 +295,43 @@ class ContentManager {
     }).filter(Boolean).join('\n');
   }
 
-  /** Fills in Modrinth's client/server sides for mods that were linked before we stored them. One request, one write. */
+  /**
+   * Fills in client/server sides from Modrinth: for Modrinth mods linked before we stored them, and for every other
+   * mod (CurseForge, local, pack) by looking its sha1 up on Modrinth. One bulk version_files request plus one bulk
+   * projects request, one index write. Misses are remembered for 30 days (sidesChecked), so the lookup isn't repeated.
+   */
   async refreshSides(instId) {
     const idx = await this.instances.readIndex(instId);
-    const want = Object.entries(idx.files).filter(([rel, e]) => rel.startsWith('mods/') && e.source === 'modrinth' && e.projectId && !e.sides);
-    if (!want.length) return { updated: 0 };
-    const projects = await this.sources.modrinth.projects([...new Set(want.map(([, e]) => e.projectId))]);
-    const byId = new Map(projects.map((p) => [p.id, p]));
-    if (!want.some(([, e]) => sidesOf(byId.get(e.projectId)))) return { updated: 0 };
+    const month = 30 * 24 * 3600e3;
+    const mods = Object.entries(idx.files).filter(([rel, e]) => rel.startsWith('mods/') && !e.sides);
+    const linked = mods.filter(([, e]) => e.source === 'modrinth' && e.projectId);
+    const byHash = mods.filter(([, e]) => !(e.source === 'modrinth' && e.projectId) && e.sha1 && !(e.sidesChecked && Date.now() - e.sidesChecked < month));
+    if (!linked.length && !byHash.length) return { updated: 0 };
+    let versions = {};
+    let hashLookupOk = false;
+    if (byHash.length) {
+      try { versions = await this.sources.modrinth.versionsByHash([...new Set(byHash.map(([, e]) => e.sha1))]); hashLookupOk = true; } catch { /* try again next time */ }
+    }
+    const pid = (e) => (e.source === 'modrinth' && e.projectId ? e.projectId : versions[e.sha1]?.projectId);
+    const all = [...linked, ...byHash];
+    const ids = [...new Set(all.map(([, e]) => pid(e)).filter(Boolean))];
+    let byId = new Map();
+    if (ids.length) {
+      try { byId = new Map((await this.sources.modrinth.projects(ids)).map((p) => [p.id, p])); } catch { return { updated: 0 }; }
+    }
+    const hashRels = new Set(byHash.map(([r]) => r));
+    const found = all.filter(([, e]) => sidesOf(byId.get(pid(e))));
+    const misses = hashLookupOk ? byHash.filter(([, e]) => !sidesOf(byId.get(pid(e)))) : [];
+    if (!found.length && !misses.length) return { updated: 0 };
     let updated = 0;
     await this.instances.withIndex(instId, (fresh) => {
-      for (const [rel, old] of want) {
-        const sides = sidesOf(byId.get(old.projectId));
-        if (fresh.files[rel] && sides) { fresh.files[rel].sides = sides; updated++; }
+      for (const [rel, old] of found) {
+        if (!fresh.files[rel]) continue;
+        fresh.files[rel].sides = sidesOf(byId.get(pid(old)));
+        delete fresh.files[rel].sidesChecked;
+        updated++;
       }
+      for (const [rel] of misses) if (fresh.files[rel] && hashRels.has(rel)) fresh.files[rel].sidesChecked = Date.now();
     });
     return { updated };
   }
@@ -377,7 +400,10 @@ class ContentManager {
         for (const rel of copiedRels) idx.files[rel] = { sides: srcIdx.files[rel]?.sides, copiedFrom: srcId, installedAt: Date.now() };
       });
       if (copiedRels.some((r) => r.startsWith('mods/'))) {
-        out.warnings.push(`${copiedRels.filter((r) => r.startsWith('mods/')).length} local mod(s) were copied as they are. Junction can't tell which Minecraft version they're for, so check they work on ${target.mcVersion}.`);
+        const nLocal = copiedRels.filter((r) => r.startsWith('mods/')).length;
+        out.warnings.push(nLocal === 1
+          ? `1 local mod was copied as it is. Junction can't tell which Minecraft version it's for, so check it works on ${target.mcVersion}.`
+          : `${nLocal} local mods were copied as they are. Junction can't tell which Minecraft version they're for, so check they work on ${target.mcVersion}.`);
       }
     }
     return out;

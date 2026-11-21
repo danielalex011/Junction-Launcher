@@ -271,7 +271,7 @@ function registerIpc() {
     if (r.canceled) return [];
     return ctx.tasks.run('Adding files', () => content.addLocalFiles(id, r.filePaths, type), { instanceId: id });
   });
-  handle('content:identify', async (id) => ctx.tasks.run('Identifying files', (t) => content.identify(id, null, t.update), { instanceId: id }));
+  handle('content:identify', async (id, rels) => ctx.tasks.run('Identifying files', (t) => content.identify(id, Array.isArray(rels) ? relList(rels) : null, t.update), { instanceId: id }));
   handle('content:checkUpdates', async (id) => {
     const r = await ctx.tasks.run('Checking for updates', () => content.checkUpdates(id), { instanceId: id });
     home.record(id, r.filter((u) => !u.error).length).catch(() => {}); // keeps Home's "Updates available" in step

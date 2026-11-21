@@ -430,6 +430,13 @@ class PackLink {
       for (const it of await this.instances.listContent(instId, t)) if (it.fromPack && !it.enabled) disabledPack.push(it.title);
     }
     const additions = Object.entries(entries).filter(([rel, e]) => !e.fromPack && contentType(rel));
+    // Pack files you changed: the update puts the pack's own file in their place (or drops them with the pack).
+    const nextKeys = new Set(next.files.filter((f) => f.type).map(fileKey));
+    const replacedChanged = Object.entries(entries).filter(([rel, e]) => e.fromPack && e.packChanged && contentType(rel)).map(([rel, e]) => {
+      const pf = e.packFile || { rel };
+      const stays = nextKeys.has(fileKey({ ...pf, rel: pf.rel || rel })) || nextKeys.has(fileKey({ rel }));
+      return { rel, title: e.title || e.meta?.name || prettyName(rel), replaced: stays };
+    });
     return {
       from: { versionId: inst.pack.versionId, versionName: inst.pack.versionName, mcVersion: inst.mcVersion, loader: inst.loader },
       to: { versionId: next.version.id, versionName: next.version.versionNumber, date: next.version.date, mcVersion: next.mcVersion, loader: next.loader, releaseType: next.version.releaseType },
@@ -438,6 +445,7 @@ class PackLink {
       keptAdditions: additions.filter(([rel]) => !covered.includes(rel)).length,
       covered: covered.map((rel) => ({ rel, title: entries[rel]?.title || entries[rel]?.meta?.name || prettyName(rel) })),
       keptDisabled: disabledPack,
+      replacedChanged,
     };
   }
 
@@ -456,9 +464,10 @@ class PackLink {
       const k = byKey.get(r.key);
       if (k?.title) r.title = k.title;
       if (k?.icon && !r.icon) r.icon = k.icon;
-      r.toVersionName = r.toVersionName || vNames.get(r.versionId) || (r.toRel || r.rel ? prettyName(r.toRel || r.rel) : null);
-      if (r.fromRel) r.fromVersionName = r.fromVersionName || vNames.get(r.fromVersionId) || prettyName(r.fromRel);
-      if (r.fromRel && r.fromVersionName === r.toVersionName) { r.fromVersionName = 'old file'; r.toVersionName = 'new file'; } // same name, new contents
+      // Without a version number (files shipped in the pack's overrides), the file names say what changes.
+      r.toVersionName = r.toVersionName || vNames.get(r.versionId) || path.basename(r.toRel || r.rel || '') || null;
+      if (r.fromRel) r.fromVersionName = r.fromVersionName || vNames.get(r.fromVersionId) || path.basename(r.fromRel);
+      if (r.fromRel && r.fromVersionName === r.toVersionName) { r.fromVersionName = null; r.sameName = true; } // same file name, new contents
     }
   }
 

@@ -32,7 +32,7 @@ async function renderPackInstance(inst, params, token) {
   const back = h('button', { class: 'btn ghost sm', type: 'button', onclick: () => go('library'), style: { marginBottom: '12px' } }, icon('arrowLeft'), 'Library');
   const failedSlot = h('div');
   const body = h('div');
-  view().replaceChildren(h('div', { class: 'page', style: { maxWidth: '1600px' } }, back, hero.el, failedSlot, tabBar, body));
+  view().replaceChildren(h('div', { class: 'page page-full instance-page' }, back, hero.el, failedSlot, tabBar, body));
   call('content:failed', id).then((list) => {
     if (!stale(token) && list?.length) failedSlot.replaceChildren(failedNotice(inst, list, () => go('instance', state.params)));
   }).catch(() => {});
@@ -118,14 +118,15 @@ function packHero(inst, token) {
   call('pack:history', inst.id).then((hist) => {
     const last = hist?.[0];
     if (!last || stale(token)) return;
-    const what = last.action === 'reinstall' ? 'reinstall' : `update${last.to ? ` to ${last.to}` : ''}`;
+    const what = last.action === 'reinstall' ? 'reinstall' : 'update';
+    const back = last.from ? ` (back to ${last.from})` : '';
     undoSlot.replaceChildren(h('button', {
       class: 'btn sm ghost', type: 'button', title: `Puts back the mods, configs and settings from before the ${what} (${ago(last.date)}).`,
       onclick: async () => {
         if (!(await confirmDialog(`Undo the ${what}?`, `This puts ${inst.name} back exactly as it was before (${last.from || 'the previous version'}): mods, resource packs, shaders and config files. Worlds are not touched.`, 'Undo'))) return;
         try { await call('pack:undo', inst.id, last.stamp); toast(`Back to ${last.from || 'the previous version'}`, 'good'); go('instance', { id: inst.id }); } catch (e) { toast(e.message, 'error'); }
       },
-    }, icon('refresh', 14), `Undo ${what}`));
+    }, icon('undo', 14), `Undo ${what}${back}`));
   }).catch(() => {});
   return { el };
 }
@@ -235,7 +236,8 @@ async function packReviewDialog(inst, target) {
   const modRow = (r, kind) => h('div', { class: `item rv-row ${kind}` },
     avatar({ icon: r.icon, title: r.title }, 'xs'),
     h('div', { style: { minWidth: 0 } }, h('div', { class: 'i-title ellipsis', title: r.title }, r.title), h('div', { class: 'i-file ellipsis' }, TYPES[r.type] || '')),
-    kind === 'upd' ? h('div', { class: 'rv-ver ellipsis', title: `${r.fromVersionName} → ${r.toVersionName}` }, h('span', { class: 'faint' }, r.fromVersionName || '?'), ' → ', h('b', null, r.toVersionName || '?'))
+    kind === 'upd' && r.sameName ? h('div', { class: 'rv-ver ellipsis', title: `${r.toVersionName}: same file name, new contents` }, h('b', null, r.toVersionName), h('span', { class: 'faint' }, ' (new contents)'))
+      : kind === 'upd' ? h('div', { class: 'rv-ver ellipsis', title: `${r.fromVersionName} → ${r.toVersionName}` }, h('span', { class: 'faint' }, r.fromVersionName || '?'), ' → ', h('b', null, r.toVersionName || '?'))
       : h('div', { class: 'rv-ver ellipsis' }, r.toVersionName || ''));
   const group = (title, cls, rows, render, open = true) => (rows.length ? h('details', { class: 'rv-group', open },
     h('summary', null, h('span', { class: `rv-dot ${cls}` }), `${title}`, h('span', { class: 'count' }, String(rows.length))),
@@ -256,8 +258,11 @@ async function packReviewDialog(inst, target) {
       h('summary', null, h('span', { class: 'rv-dot cfg' }), 'Config files', h('span', { class: 'count' }, String(cfg.length))),
       h('div', { class: 'rv-cfg' }, cfg.map(([k, r]) => h('div', null, h('span', { class: `badge plain ${k === 'No longer in the pack' ? 'bad' : k === 'New' ? 'good' : 'warn'}` }, k), h('code', null, r))))) : null,
     h('div', { class: 'rv-keep' },
-      h('div', null, icon('check', 14), p.keptAdditions ? `${p.keptAdditions} file${p.keptAdditions === 1 ? '' : 's'} you added yourself stay.` : 'You have no additions of your own.'),
-      p.keptDisabled.length ? h('div', null, icon('check', 14), `${p.keptDisabled.length} pack mod${p.keptDisabled.length === 1 ? '' : 's'} you turned off stay off: ${p.keptDisabled.slice(0, 4).join(', ')}${p.keptDisabled.length > 4 ? '…' : ''}`) : null,
+      h('div', null, icon('check', 14), p.keptAdditions ? (p.keptAdditions === 1 ? '1 file you added yourself stays.' : `${p.keptAdditions} files you added yourself stay.`) : 'You have no additions of your own.'),
+      p.keptDisabled.length ? h('div', null, icon('check', 14), `${p.keptDisabled.length === 1 ? '1 pack mod you turned off stays off' : `${p.keptDisabled.length} pack mods you turned off stay off`}: ${p.keptDisabled.slice(0, 4).join(', ')}${p.keptDisabled.length > 4 ? '…' : ''}`) : null,
+      ...(p.replacedChanged || []).map((c) => h('div', { class: 'warn' }, icon('alert', 14), c.replaced
+        ? `${c.title}: your changed file is replaced with the pack's version.`
+        : `${c.title}: your changed file is removed, because ${p.to.versionName} no longer includes it.`)),
       p.covered.length ? h('div', { class: 'warn' }, icon('alert', 14), `The pack now includes ${p.covered.map((c) => c.title).slice(0, 4).join(', ')}${p.covered.length > 4 ? ` and ${p.covered.length - 4} more` : ''}, so your own cop${p.covered.length === 1 ? 'y is' : 'ies are'} removed.`) : null,
       h('div', null, icon('info', 14), 'Mods, resource packs, shaders and configs are backed up first, so you can undo this.')),
     running ? h('div', { class: 'notice warn', style: { margin: 0 } }, icon('alert'), 'Minecraft is running from this instance. Close the game first.') : null);

@@ -211,7 +211,8 @@ async function renderContentTab(inst, type, root, token) {
       }));
     }
     const dups = items.filter((i) => i.duplicateOf);
-    const unknown = items.filter((i) => i.source === 'local' && !isLocked(i));
+    // On a linked pack only your additions count: the pack's files are never updated one by one.
+    const unknown = items.filter((i) => i.source === 'local' && !(linked && i.fromPack));
     notices.replaceChildren(
       dups.length ? h('div', { class: 'notice warn' }, icon('alert'), h('div', null,
         h('div', null, `${dups.length} duplicate mod${dups.length > 1 ? 's' : ''} found (the same mod installed twice, e.g. from both Modrinth and CurseForge). Minecraft will refuse to start like this.`),
@@ -219,7 +220,7 @@ async function renderContentTab(inst, type, root, token) {
       unknown.length ? h('div', { class: 'notice info' }, icon('info'), h('div', { class: 'grow' },
         `${unknown.length} file${unknown.length > 1 ? 's' : ''} not linked to Modrinth or CurseForge, so ${unknown.length > 1 ? "they can't" : "it can't"} be updated.`),
         h('button', { class: 'btn sm', type: 'button', onclick: async () => {
-          try { const r = await call('content:identify', inst.id); toast(`Recognised ${r.identified} of ${r.total}`, r.identified ? 'good' : 'info'); renderContentTab(inst, type, root, renderToken); } catch (e) { toast(e.message, 'error'); }
+          try { const r = await call('content:identify', inst.id, linked ? unknown.map((i) => i.file) : null); toast(`Recognised ${r.identified} of ${r.total}`, r.identified ? 'good' : 'info'); renderContentTab(inst, type, root, renderToken); } catch (e) { toast(e.message, 'error'); }
         } }, 'Look them up')) : null,
     );
     if (!shown.length) {
@@ -390,7 +391,7 @@ async function renderContentTab(inst, type, root, token) {
         if (!(await confirmDialog(`Undo the update from ${ago(last.date)}?`, `This puts back the exact files that were replaced:\n${list}`, 'Undo update'))) return;
         try { const r = await call('content:undoUpdate', inst.id, last.stamp); toast(`Restored ${r.restored} file${r.restored === 1 ? '' : 's'}`, 'good'); refresh(); } catch (e) { toast(e.message, 'error'); }
       },
-    }, icon('refresh'), `Undo last update (${last.items.length})`));
+    }, icon('undo'), `Undo last update (${last.items.length})`));
   }).catch(() => {});
   const toolbar = h('div', { class: 'toolbar' },
     h('div', { class: 'search', style: { maxWidth: '320px' } }, icon('search'), h('input', { type: 'search', placeholder: 'Filter…', oninput: (e) => { filter = e.target.value.toLowerCase(); renderList(); } })),
@@ -400,7 +401,7 @@ async function renderContentTab(inst, type, root, token) {
     updateAllBtn,
     updateBtn,
     h('button', { class: 'btn', type: 'button', onclick: async () => {
-      try { const added = await call('content:addFiles', inst.id, type); if (added?.length) { toast(`Added ${added.length} file(s)`, 'good'); renderContentTab(inst, type, root, renderToken); } } catch (e) { toast(e.message, 'error'); }
+      try { const added = await call('content:addFiles', inst.id, type); if (added?.length) { toast(`Added ${added.length} ${added.length === 1 ? 'file' : 'files'}`, 'good'); renderContentTab(inst, type, root, renderToken); } } catch (e) { toast(e.message, 'error'); }
     } }, icon('file'), 'Add files'),
     h('button', { class: 'btn primary', type: 'button', onclick: () => go('browse', { type, instanceId: inst.id }) }, icon('plus'), `Add ${type === 'mod' ? 'mods' : TYPES[type].toLowerCase()}`));
   if (linked) updateBtn.title = `Checks the files you added. ${packName}'s own files update with the pack.`;

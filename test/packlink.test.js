@@ -230,3 +230,38 @@ test('reinstall can drop your additions; Restore pack version puts the pack file
   assert.ok(!fs.existsSync(path.join(gd, 'mods', 'mousetweaks-3.1.jar')));
   assert.ok(fs.existsSync(path.join(gd, 'mods', 'sodium-0.6.0.jar')));
 });
+
+test('review: files without a version show their real names, and changed pack files are said to be replaced', async () => {
+  const { packs, id, gd } = await setup();
+  fs.writeFileSync(path.join(gd, 'mods', 'lithium-0.13.1.jar'), fabricJar('lithium', 'Lithium', 'custom'));
+  await packs.label(id);
+  const p = await packs.preview(id, 'lan420');
+  const ui = p.updated.find((r) => r.type === 'resourcepack');
+  assert.equal(ui.toVersionName, 'lantern-ui.zip');
+  assert.equal(ui.sameName, true);
+  assert.ok(!p.updated.some((r) => /old file|new file/.test(`${r.fromVersionName} ${r.toVersionName}`)));
+  assert.deepEqual(p.replacedChanged.map((c) => [c.title, c.replaced]), [['Lithium', true]]);
+});
+
+test('Side for CurseForge mods: one bulk Modrinth hash lookup, misses remembered', async () => {
+  const { makeCtx } = require('./helpers');
+  const hits = { files: 0, projects: 0 };
+  const ctx = await makeCtx([
+    ['POST', /\/v2\/version_files$/, () => { hits.files++; return { json: { aaa: { id: 'v1', project_id: 'P1', version_number: '1', files: [], dependencies: [] } } }; }],
+    ['GET', /\/v2\/projects\?ids=/, () => { hits.projects++; return { json: [{ id: 'P1', slug: 'p1', title: 'P1', project_type: 'mod', client_side: 'required', server_side: 'unsupported' }] }; }],
+  ]);
+  const instances = new Instances(ctx);
+  const content = new ContentManager(ctx, instances, createSources(ctx));
+  const inst = await instances.create({ name: 'CF', mcVersion: '1.20.1', loader: { type: 'forge', version: '47.2.0' } });
+  await instances.withIndex(inst.id, (idx) => {
+    idx.files['mods/a.jar'] = { source: 'curseforge', projectId: 11, sha1: 'aaa' };
+    idx.files['mods/b.jar'] = { source: 'curseforge', projectId: 12, sha1: 'bbb' };
+  });
+  assert.deepEqual(await content.refreshSides(inst.id), { updated: 1 });
+  assert.deepEqual(hits, { files: 1, projects: 1 }, 'one request each, for all files');
+  const idx = await instances.readIndex(inst.id);
+  assert.deepEqual(idx.files['mods/a.jar'].sides, { client: 'required', server: 'unsupported' });
+  assert.ok(idx.files['mods/b.jar'].sidesChecked, 'not on Modrinth: remembered');
+  assert.deepEqual(await content.refreshSides(inst.id), { updated: 0 });
+  assert.deepEqual(hits, { files: 1, projects: 1 }, 'cached: nothing asked again');
+});

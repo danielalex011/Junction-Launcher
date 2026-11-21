@@ -39,6 +39,7 @@ const ICONS = {
   puzzle: '<path d="M19.4 12.6V8.2a1 1 0 0 0-1-1h-3.6a2.4 2.4 0 1 0-4.6 0H6.2a1 1 0 0 0-1 1v3.6a2.4 2.4 0 1 1 0 4.6V20a1 1 0 0 0 1 1h4a2.4 2.4 0 1 1 4.6 0h3.6a1 1 0 0 0 1-1v-4.4a2.4 2.4 0 1 1 0-3z"/>',
   chevronDown: '<polyline points="6 9 12 15 18 9"/>',
   lock: '<rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/>',
+  undo: '<polyline points="9 14 4 9 9 4"/><path d="M20 20v-7a4 4 0 0 0-4-4H4"/>',
   clock: '<circle cx="12" cy="12" r="9"/><polyline points="12 7 12 12 15 14"/>',
   pack: '<path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22" x2="12" y2="12"/>',
   file: '<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/>',
