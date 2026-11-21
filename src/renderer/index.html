@@ -23,6 +23,18 @@
   <div id="modal-root"></div>
   <div id="toasts"></div>
   <div id="drop-hint">Drop a .mrpack or CurseForge .zip to import it</div>
+  <!-- Plain scripts sharing one global scope, no bundler. Order matters: helpers first, app.js last (it runs init()). -->
+  <script src="helpers.js"></script>
+  <script src="dialogs.js"></script>
+  <script src="activity.js"></script>
+  <script src="accounts.js"></script>
+  <script src="library.js"></script>
+  <script src="import.js"></script>
+  <script src="instance.js"></script>
+  <script src="content.js"></script>
+  <script src="updates.js"></script>
+  <script src="browse.js"></script>
+  <script src="settings.js"></script>
   <script src="app.js"></script>
 </body>
 </html>
