@@ -33,6 +33,9 @@ const ICONS = {
   terminal: '<polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/>',
   login: '<path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"/><polyline points="10 17 15 12 10 7"/><line x1="15" y1="12" x2="3" y2="12"/>',
   arrowLeft: '<line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/>',
+  pause: '<rect x="6" y="4" width="4" height="16" rx="1"/><rect x="14" y="4" width="4" height="16" rx="1"/>',
+  activity: '<polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/>',
+  puzzle: '<path d="M19.4 12.6V8.2a1 1 0 0 0-1-1h-3.6a2.4 2.4 0 1 0-4.6 0H6.2a1 1 0 0 0-1 1v3.6a2.4 2.4 0 1 1 0 4.6V20a1 1 0 0 0 1 1h4a2.4 2.4 0 1 1 4.6 0h3.6a1 1 0 0 0 1-1v-4.4a2.4 2.4 0 1 1 0-3z"/>',
   chevronDown: '<polyline points="6 9 12 15 18 9"/>',
   file: '<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/>',
 };

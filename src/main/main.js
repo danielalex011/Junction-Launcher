@@ -105,7 +105,12 @@ function registerIpc() {
   }));
   handle('settings:get', async () => ctx.settings.publicView());
   handle('settings:set', async (patch) => ctx.settings.update(patch));
-  handle('tasks:list', async () => ctx.tasks.list());
+  handle('tasks:list', async () => ({ active: ctx.tasks.list(), history: ctx.tasks.getHistory() }));
+  handle('tasks:pause', async (id) => ctx.tasks.pause(String(id)));
+  handle('tasks:resume', async (id) => ctx.tasks.resume(String(id)));
+  handle('tasks:cancel', async (id) => ctx.tasks.cancel(String(id)));
+  handle('tasks:removeHistory', async (id) => ctx.tasks.removeHistory(String(id)));
+  handle('tasks:clearHistory', async () => ctx.tasks.clearHistory());
 
   // --- versions & loaders
   handle('mc:versions', async (opts) => listGameVersions(ctx, opts || {}));
@@ -155,7 +160,7 @@ function registerIpc() {
     send('inst:state', { id, state: 'preparing' });
     try {
       const creds = await accounts.launchCredentials();
-      const prepared = await ctx.tasks.run(`Preparing ${inst.name}`, (t) => prepareInstance(ctx, inst, t.update), { instanceId: id });
+      const prepared = await ctx.tasks.run(`Preparing ${inst.name}`, (t) => prepareInstance(ctx, inst, t.update), { instanceId: id, kind: 'prepare', icon: 'instance' });
       let pending = [];
       let flushTimer = null;
       const flush = () => { flushTimer = null; if (pending.length) { send('inst:log', { id, lines: pending }); pending = []; } };
@@ -214,7 +219,7 @@ function registerIpc() {
   handle('content:sendToInstance', async (id, rels, targetId) => {
     const list = relList(rels);
     if (running.has(targetId)) throw new Error('Close the game on the target instance before sending mods to it.');
-    const r = await ctx.tasks.run(`Sending ${list.length} file${list.length === 1 ? '' : 's'}`, (t) => content.sendToInstance(id, list, targetId, { report: t.update }), { instanceId: targetId });
+    const r = await ctx.tasks.run(`Sending ${list.length} file${list.length === 1 ? '' : 's'}`, (t) => content.sendToInstance(id, list, targetId, { report: t.update }), { instanceId: targetId, kind: 'mod', icon: 'mod' });
     return { ...r, blockedSession: startBlockedSession(targetId, r.blocked) };
   });
   handle('content:addFiles', async (id, type) => {
@@ -227,7 +232,7 @@ function registerIpc() {
   handle('content:checkUpdates', async (id) => ctx.tasks.run('Checking for updates', () => content.checkUpdates(id), { instanceId: id }));
   handle('content:applyUpdates', async (id, updates) => {
     if (running.has(id)) throw new Error('Close the game before updating its mods.');
-    const r = await ctx.tasks.run(`Updating ${updates.length} files`, (t) => content.applyUpdates(id, updates, t.update), { instanceId: id });
+    const r = await ctx.tasks.run(`Updating ${updates.length} files`, (t) => content.applyUpdates(id, updates, t.update), { instanceId: id, kind: 'update', icon: 'mod' });
     return { ...r, blockedSession: startBlockedSession(id, r.blocked) };
   });
   handle('content:updateCandidates', async (id, q) => content.updateCandidates(id, q));
@@ -237,7 +242,7 @@ function registerIpc() {
     return ctx.tasks.run('Undoing update', () => content.undoUpdate(id, stamp), { instanceId: id });
   });
   handle('content:install', async (id, { source, projectId, type, versionId, title }) => {
-    const r = await ctx.tasks.run(`Installing ${title || 'content'}`, (t) => content.installProject(id, { source, id: projectId }, type, { versionId, report: t.update }), { instanceId: id });
+    const r = await ctx.tasks.run(`Installing ${title || 'content'}`, (t) => content.installProject(id, { source, id: projectId }, type, { versionId, report: t.update }), { instanceId: id, kind: 'mod', icon: 'mod' });
     return { ...r, blockedSession: startBlockedSession(id, r.blocked) };
   });
   handle('content:installed', async (id) => content.installedInfo(id));
@@ -260,7 +265,7 @@ function registerIpc() {
 
   // --- modpacks
   handle('pack:installFromSource', async (opts) => {
-    const r = await ctx.tasks.run(`Installing ${opts.title || 'modpack'}`, (t) => modpacks.installFromSource({ ...opts, report: t.update }));
+    const r = await ctx.tasks.run(`Installing ${opts.title || 'modpack'}`, (t) => modpacks.installFromSource({ ...opts, report: t.update }), { kind: 'modpack', icon: 'pack', heavy: true, createsInstance: true });
     return { ...r, blockedSession: startBlockedSession(r.instance.id, r.blocked) };
   });
   handle('pack:importFile', async (filePath) => {
@@ -270,25 +275,25 @@ function registerIpc() {
       if (r.canceled) return null;
       [file] = r.filePaths;
     }
-    const r = await ctx.tasks.run(`Importing ${path.basename(file)}`, (t) => modpacks.installFile(file, { report: t.update }));
+    const r = await ctx.tasks.run(`Importing ${path.basename(file)}`, (t) => modpacks.installFile(file, { report: t.update }), { kind: 'modpack', icon: 'pack', heavy: true, createsInstance: true });
     return { ...r, blockedSession: startBlockedSession(r.instance.id, r.blocked) };
   });
   // Files a pack install couldn't download (kept in content.json so they can be retried), and repairing a pack.
   handle('content:failed', async (id) => modpacks.failedDownloads(id));
   handle('content:retryFailed', async (id) => {
     if (running.has(id)) throw new Error('Close the game before retrying downloads for it.');
-    return ctx.tasks.run('Retrying failed downloads', (t) => modpacks.retryFailed(id, { report: t.update }), { instanceId: id });
+    return ctx.tasks.run('Retrying failed downloads', (t) => modpacks.retryFailed(id, { report: t.update }), { instanceId: id, kind: 'repair', icon: 'pack' });
   });
   handle('pack:repair', async (id) => {
     if (running.has(id)) throw new Error('Close the game before repairing its modpack.');
     const inst = await instances.get(id);
-    const r = await ctx.tasks.run(`Repairing ${inst.name}`, (t) => modpacks.repair(id, { report: t.update }), { instanceId: id });
+    const r = await ctx.tasks.run(`Repairing ${inst.name}`, (t) => modpacks.repair(id, { report: t.update }), { instanceId: id, kind: 'repair', icon: 'pack', heavy: true });
     return { ...r, blockedSession: startBlockedSession(id, r.blocked) };
   });
   handle('pack:checkUpdate', async (id) => modpacks.checkPackUpdate(id));
   handle('pack:update', async (id, versionId) => {
     const inst = await instances.get(id);
-    const r = await ctx.tasks.run(`Updating ${inst.name}`, (t) => modpacks.installFromSource({ source: inst.pack.source, projectId: inst.pack.projectId, versionId, instanceId: id, report: t.update }), { instanceId: id });
+    const r = await ctx.tasks.run(`Updating ${inst.name}`, (t) => modpacks.installFromSource({ source: inst.pack.source, projectId: inst.pack.projectId, versionId, instanceId: id, report: t.update }), { instanceId: id, kind: 'update', icon: 'pack', heavy: true });
     return { ...r, blockedSession: startBlockedSession(id, r.blocked) };
   });
 
@@ -351,7 +356,7 @@ function registerIpc() {
     };
   });
   handle('import:detect', async (folder) => withPreview(await detectInstance(folder)));
-  handle('import:run', async (info, choices) => ctx.tasks.run(`Importing ${choices.name || info.name}`, (t) => importInstance({ instances, content }, info, choices, t.update)));
+  handle('import:run', async (info, choices) => ctx.tasks.run(`Importing ${choices.name || info.name}`, (t) => importInstance({ instances, content }, info, choices, t.update), { kind: 'import', icon: 'instance', heavy: true, createsInstance: true }));
 
   // --- accounts
   handle('accounts:list', async () => ({ accounts: accounts.list(), canAddOffline: accounts.canAddOffline() }));
@@ -458,6 +463,7 @@ app.whenReady().then(async () => {
   content = new ContentManager(ctx, instances, sources);
   modpacks = new Modpacks(ctx, instances, content, sources);
   ctx.tasks.on('update', (t) => send('task:update', t));
+  ctx.tasks.on('history', (list) => send('task:history', list));
   protocol.handle('junction-icon', async (req) => {
     const id = new URL(req.url).hostname;
     const file = /^[a-z0-9-]+$/.test(id) ? await instances.iconFile(id) : null;

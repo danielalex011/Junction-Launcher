@@ -60,7 +60,61 @@ const flakyVersion = () => ({
 const flakyProject = { id: 'FLAKY', slug: 'flaky-pack', title: 'Flaky Pack', project_type: 'modpack', icon_url: null, description: 'A pack whose download server has a bad day.', downloads: 4200, followers: 12 };
 const HTML_503 = '<html><head><title>503 Service Temporarily Unavailable</title></head><body><center><h1>503 Service Temporarily Unavailable</h1></center><hr><center>first byte timeout</center></body></html>';
 
+// ---- "Slow Pack": a Modrinth modpack (search for "slow" under Modpacks) with big files that stream slowly
+// (JUNCTION_SLOW_MBPS per file, default 1.5), so the Activity panel has progress, speed and ETA to show,
+// and Pause / Resume / Cancel have something to act on.
+const SLOW = { a: 40, b: 20, c: 10, d: 5 }; // sizes in MB
+const SLOW_MBPS = Number(process.env.JUNCTION_SLOW_MBPS) || 1.5;
+const SLOW_PIECE = 128 * 1024;
+const slowPiece = (k) => Buffer.alloc(SLOW_PIECE, k.charCodeAt(0));
+const slowBody = (k) => { const n = Math.round((SLOW[k] * 1024 * 1024) / SLOW_PIECE); return Buffer.concat(Array.from({ length: n }, () => slowPiece(k))); };
+const slowHashes = {};
+const slowHash = (k) => (slowHashes[k] = slowHashes[k] || (() => { const b = slowBody(k); return { sha1: sha(b, 'sha1'), sha512: sha(b, 'sha512'), size: b.length }; })());
+let slowPackBuf = null;
+const slowPack = () => {
+  if (slowPackBuf) return slowPackBuf;
+  const zip = new AdmZip();
+  zip.addFile('modrinth.index.json', Buffer.from(JSON.stringify({
+    formatVersion: 1, game: 'minecraft', versionId: '1.0', name: 'Slow Pack', dependencies: { minecraft: '26.1.2', 'fabric-loader': '0.17.3' },
+    files: Object.keys(SLOW).map((k) => ({ path: `mods/slow-${k}.jar`, hashes: { sha1: slowHash(k).sha1, sha512: slowHash(k).sha512 }, downloads: [`https://cdn.modrinth.com/data/SLOW/files/${k}.jar`], fileSize: slowHash(k).size, env: { client: 'required', server: 'required' } })),
+  })));
+  zip.addFile('overrides/config/slow.toml', Buffer.from('patient = true'));
+  slowPackBuf = zip.toBuffer();
+  return slowPackBuf;
+};
+const slowVersion = () => ({
+  id: 'slow1', project_id: 'SLOW', name: 'Slow Pack 1.0', version_number: '1.0', game_versions: ['26.1.2'], loaders: ['fabric'], version_type: 'release', date_published: daysAgo(2), dependencies: [],
+  files: [{ url: 'https://cdn.modrinth.com/data/SLOW/versions/slow1/slow.mrpack', filename: 'slow.mrpack', hashes: { sha1: sha(slowPack(), 'sha1'), sha512: sha(slowPack(), 'sha512') }, size: slowPack().length, primary: true }],
+});
+const slowProject = { id: 'SLOW', slug: 'slow-pack', title: 'Slow Pack', project_type: 'modpack', icon_url: null, description: 'A big pack on a slow connection. Watch the Activity panel.', downloads: 900, followers: 4 };
+/** A body that arrives at SLOW_MBPS and stops when the request is aborted, like a real fetch. */
+function slowResponse(k, signal) {
+  const body = slowBody(k);
+  let at = 0;
+  const msPerPiece = (SLOW_PIECE / (SLOW_MBPS * 1024 * 1024)) * 1000;
+  const stream = new ReadableStream({
+    pull(ctrl) {
+      return new Promise((resolve) => {
+        const t = setTimeout(() => {
+          signal?.removeEventListener('abort', onAbort);
+          if (at >= body.length) ctrl.close(); else { ctrl.enqueue(new Uint8Array(body.subarray(at, at + SLOW_PIECE))); at += SLOW_PIECE; }
+          resolve();
+        }, msPerPiece);
+        const onAbort = () => { clearTimeout(t); ctrl.error(signal.reason); resolve(); };
+        signal?.addEventListener('abort', onAbort, { once: true });
+      });
+    },
+  });
+  return new Response(stream, { headers: { 'content-length': String(body.length) } });
+}
+
 module.exports = async (url, opts = {}) => {
+  const slowFile = url.match(/^https:\/\/cdn\.modrinth\.com\/data\/SLOW\/files\/(\w)\.jar$/);
+  if (slowFile && SLOW[slowFile[1]]) return slowResponse(slowFile[1], opts.signal);
+  if (url === 'https://cdn.modrinth.com/data/SLOW/versions/slow1/slow.mrpack') return new Response(slowPack());
+  if (url.startsWith('https://api.modrinth.com/v2/project/SLOW/version')) return json([slowVersion()]);
+  if (url === 'https://api.modrinth.com/v2/version/slow1') return json(slowVersion());
+  if (url === 'https://api.modrinth.com/v2/project/SLOW') return json(slowProject);
   const flakyFile = url.startsWith('https://cdn.modrinth.com/data/FLAKY/files/') ? url.slice(-5, -4) : null; // .../files/b.jar -> "b"
   if (flakyFile && FLAKY[flakyFile]) {
     flakyHits[flakyFile] = (flakyHits[flakyFile] || 0) + 1;
@@ -75,7 +129,10 @@ module.exports = async (url, opts = {}) => {
   if (url === 'https://api.modrinth.com/v2/project/FLAKY') return json(flakyProject);
   if (url.endsWith('/v2/version_files') && opts.method === 'POST') return json({}); // nothing in a pack is known by hash
   if (url.startsWith('https://api.modrinth.com/v2/search') && url.includes('project_type%3Amodpack')) {
-    return json({ total_hits: 1, hits: [{ ...mr('FLAKY', 'flaky-pack', 'Flaky Pack', 'demo', 'A pack whose download server has a bad day. Try the retry and repair buttons.', 4200, ['adventure']), project_type: 'modpack' }] });
+    return json({ total_hits: 2, hits: [
+      { ...mr('FLAKY', 'flaky-pack', 'Flaky Pack', 'demo', 'A pack whose download server has a bad day. Try the retry and repair buttons.', 4200, ['adventure']), project_type: 'modpack' },
+      { ...mr('SLOW', 'slow-pack', 'Slow Pack', 'demo', 'Big files on a slow connection. Watch the Activity panel (pause, resume, cancel).', 900, ['adventure']), project_type: 'modpack' },
+    ] });
   }
   // Every Modrinth file hash gets a newer version offered, so update review has something to show.
   if (url.endsWith('/v2/version_files/update') && opts.body) {

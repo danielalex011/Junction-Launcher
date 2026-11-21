@@ -5,6 +5,7 @@ const fsp = fs.promises;
 const path = require('path');
 const crypto = require('crypto');
 const os = require('os');
+const { currentTask, CancelledError } = require('./taskcontext');
 
 async function exists(p) {
   try { await fsp.access(p); return true; } catch { return false; }
@@ -48,21 +49,34 @@ function hashFile(p, algo = 'sha1') {
 
 // Run fn over items with at most `limit` in flight. Collects errors instead of
 // failing fast so one bad file doesn't abandon a 300-file download half way.
-async function pool(items, limit, fn) {
+// Inside a task it counts files for the progress display, stops starting new items on Pause
+// (until Resume) and on Cancel (then throws CancelledError). `signal` overrides the task's cancel
+// signal; count: false leaves the file counters alone (second passes, "checking" passes).
+async function pool(items, limit, fn, { signal, count = true } = {}) {
+  const task = currentTask();
+  const cancel = signal || task?.signal;
   const results = new Array(items.length);
   const errors = [];
   let next = 0;
+  if (task && count) task.addFiles(items.length);
   async function worker() {
     while (next < items.length) {
+      if (cancel?.aborted) return;
+      if (task) {
+        try { await task.waitIfPaused(); } catch { return; } // cancelled while paused
+        if (cancel?.aborted) return;
+      }
       const i = next++;
       try {
         results[i] = await fn(items[i], i);
       } catch (e) {
         errors.push({ item: items[i], error: e });
       }
+      if (task && count) task.fileDone();
     }
   }
   await Promise.all(Array.from({ length: Math.max(1, Math.min(limit, items.length)) }, worker));
+  if (cancel?.aborted) throw new CancelledError();
   return { results, errors };
 }
 

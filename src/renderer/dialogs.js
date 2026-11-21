@@ -3,6 +3,7 @@
 
 // ---------------------------------------------------------------- toasts, modals, menus
 function toast(msg, type = 'info', ms = 4500) {
+  if (type === 'error' && msg === 'Cancelled') return; // the user stopped it themselves; the Activity panel already says so
   const t = h('div', { class: `toast ${type}` }, msg);
   $('#toasts').append(t);
   setTimeout(() => t.remove(), type === 'error' ? Math.max(ms, 8000) : ms);

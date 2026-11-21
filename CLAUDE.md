@@ -21,7 +21,9 @@ npm run deploy:dev   # fast build (no zip/installer) into the dev folder + deskt
 ```
 src/core/            engine — plain Node, must NEVER require('electron') (keeps it testable)
   context.js         builds ctx { paths, settings, http, tasks, crypto } passed to everything
-  http.js            fetch wrapper; download() hashes while streaming, verifies, then renames
+  http.js            fetch wrapper; download() hashes while streaming, verifies, then renames; obeys the running task's Cancel / Pause
+  tasks.js           TaskManager: progress, speed/ETA, cancel, pause/resume, heavy-install queue, saved history (activity.json)
+  taskcontext.js     AsyncLocalStorage that lets http.download() and pool() find the running task (no signal threading needed)
   settings.js        settings.json; secrets encrypted; built-in defaults from build-config.js
   build-config.js    official-build sign-in ID + CurseForge key (build-config.json / env vars)
   instances.js       instance folders, content.json index, listContent(), icons
@@ -40,7 +42,7 @@ test/                *.test.js + helpers.js (makeCtx with fake fetch, fabricJar/
 tools/               mock-network.js + seed-demo.js for offline UI work; real-install.js runs prepareInstance against the real services (node tools/real-install.js [case...] [--dir folder]); deploy-dev.js is `npm run deploy:dev`
 ```
 
-Data flow for a feature: core function → `handle('x:y', …)` in main.js → `call('x:y', …)` in the matching src/renderer file. Long jobs go through `ctx.tasks.run(title, (t) => …)` so they show in the sidebar task panel.
+Data flow for a feature: core function → `handle('x:y', …)` in main.js → `call('x:y', …)` in the matching src/renderer file. Long jobs go through `ctx.tasks.run(title, (t) => …, { kind, icon, heavy, createsInstance })` so they show in the Activity panel (`t.onCancel(fn)` registers cleanup for Cancel; `heavy` installs run one at a time).
 
 ## Shared data shapes
 
@@ -79,6 +81,7 @@ Data flow for a feature: core function → `handle('x:y', …)` in main.js → `
 - `grep` first, then read only the functions you need (Read with offset/limit); don't open whole files.
 - Screenshots only for visual changes; text checks (`read_page`, CDP `innerText`) otherwise.
 - Pipe long build output through `tail`.
+- When unsure how Electron, electron-builder, Node.js or another library works, look it up with Context7 instead of guessing. Never use it for this repo's own code.
 - Prefer small, targeted edits over rewriting whole files.
 
 ## Conventions
@@ -115,5 +118,7 @@ set JUNCTION_DATA=C:\tmp\junction-demo
 set JUNCTION_FETCH_MOCK=%CD%\tools\mock-network.js
 npm start
 ```
+
+Search "slow" under Modpacks in the mock network for a pack with big, slowly streaming files (`JUNCTION_SLOW_MBPS`, default 1.5): handy for the Activity panel. If another Junction is open, add `--user-data-dir=<temp folder>` to `npx electron .`.
 
 `JUNCTION_SCREENSHOT=<png>` (plus optional `JUNCTION_SCREENSHOT_JS="go('settings')"` and `JUNCTION_SCREENSHOT_WAIT=1500`) makes the app run the snippet, save a screenshot and quit. It's handy for checking UI changes.

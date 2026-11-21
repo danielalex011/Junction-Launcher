@@ -11,6 +11,7 @@ const { parseLoaderId } = require('../loaders');
 const { readModMetadata } = require('./metadata');
 const { pickFile } = require('./manager');
 const { describeError, isRetryable } = require('../http');
+const { currentTask } = require('../taskcontext');
 const { safeJoin, ensureDir, pool, exists, shortId, hashFile, hashBuffer } = require('../util');
 
 // How many pack files to fetch at once. The CDNs also have their own gentler
@@ -121,7 +122,14 @@ class Modpacks {
       await this.prepareUpdate(instanceId);
       return this.instances.update(instanceId, { mcVersion, loader, pack, ...(icon ? { icon } : {}) });
     }
-    return this.instances.create({ name, mcVersion, loader, icon, pack });
+    const created = await this.instances.create({ name, mcVersion, loader, icon, pack });
+    // If the user cancels this install, the half-made instance goes away with it.
+    const task = currentTask();
+    if (task) {
+      task.setInstance(created.id);
+      task.onCancel(() => this.instances.remove(created.id));
+    }
+    return created;
   }
 
   // ---- downloading with a second chance ----------------------------------------------------
@@ -132,12 +140,12 @@ class Modpacks {
    */
   async downloadAll(jobs, run, progress = () => {}) {
     let done = 0;
-    const pass = (list) => pool(list, DOWNLOAD_CONCURRENCY, async (job) => { await run(job); done++; progress(done, jobs.length); });
-    const first = await pass(jobs);
+    const pass = (list, count) => pool(list, DOWNLOAD_CONCURRENCY, async (job) => { await run(job); done++; progress(done, jobs.length); }, { count });
+    const first = await pass(jobs, true);
     const again = first.errors.filter((e) => isRetryable(e.error));
     if (!again.length) return first.errors;
     await this.ctx.http.sleep(this.ctx.http.retryDelays[0] || 0); // let the server breathe
-    const second = await pass(again.map((e) => e.item));
+    const second = await pass(again.map((e) => e.item), false);
     return [...first.errors.filter((e) => !isRetryable(e.error)), ...second.errors];
   }
 
@@ -483,7 +491,7 @@ class Modpacks {
     await pool(files, DOWNLOAD_CONCURRENCY, async (f) => {
       states.set(f, await fileState(safeJoin(gameDir, f.path), { sha1: f.hashes?.sha1, sha512: f.hashes?.sha512, size: f.fileSize }));
       report(0.1 + 0.25 * (++checked / files.length), `Checking files ${checked}/${files.length}`);
-    });
+    }, { count: false });
     const todo = files.filter((f) => states.get(f).state !== 'ok');
     const errors = await this.downloadAll(todo, async (f) => {
       const dest = safeJoin(gameDir, f.path);
@@ -514,7 +522,7 @@ class Modpacks {
     await pool(all, DOWNLOAD_CONCURRENCY, async (j) => {
       states.set(j, await fileState(j.dest, { sha1: j.sha1, size: j.size }));
       report(0.15 + 0.2 * (++checked / all.length), `Checking files ${checked}/${all.length}`);
-    });
+    }, { count: false });
     const todo = jobs.filter((j) => states.get(j).state !== 'ok');
     const errors = await this.downloadAll(todo, async (j) => {
       await this.ctx.http.download(j.url, j.dest, { sha1: j.sha1, size: j.size });

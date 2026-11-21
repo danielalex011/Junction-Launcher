@@ -8,6 +8,7 @@ const path = require('path');
 const { readJson, exists, copyDir, safeJoin, imageTypeOfFile } = require('../util');
 const { parseLoaderId, neoForgeToMc, listLoaderVersions, pickDefault } = require('../loaders');
 const { readModMetadata } = require('./metadata');
+const { currentTask } = require('../taskcontext');
 
 const SKIP_TOP = new Set(['minecraftinstance.json', 'profile.json', 'mmc-pack.json', 'instance.cfg', 'logs', 'crash-reports', '.fabric', 'natives', '.mixin.out']);
 
@@ -507,6 +508,8 @@ async function importInstance({ instances, content }, info, { name, mcVersion, l
     mcVersion: mc,
     loader: loader && loader !== 'vanilla' ? { type: loader, version: lv } : { type: 'vanilla' },
   });
+  const task = currentTask();
+  if (task) { task.setInstance(inst.id); task.onCancel(() => instances.remove(inst.id)); } // Cancel removes the half-made copy
   await instances.update(inst.id, { importedFrom: info.folder });
   await applyImportedIcon(instances, inst.id, info);
   report(0.1, 'Copying files');

@@ -21,6 +21,7 @@ async function createContext(root, { crypto, fetchImpl, builtins = {} } = {}) {
     cache: path.join(root, 'cache'),
     settingsFile: path.join(root, 'settings.json'),
     accountsFile: path.join(root, 'accounts.json'),
+    tasksFile: path.join(root, 'activity.json'),
   };
   for (const k of ['meta', 'versions', 'libraries', 'assets', 'natives', 'runtimes', 'instances', 'cache']) {
     await ensureDir(paths[k]);
@@ -31,7 +32,7 @@ async function createContext(root, { crypto, fetchImpl, builtins = {} } = {}) {
   };
   const settings = await new Settings(paths.settingsFile, cryptoImpl, builtins).load();
   const http = new Http({ getCurseForgeKey: () => settings.get('cfApiKey'), fetchImpl });
-  const tasks = new TaskManager();
+  const tasks = await new TaskManager({ historyFile: paths.tasksFile }).load();
   return { root, paths, settings, http, tasks, crypto: cryptoImpl };
 }
 

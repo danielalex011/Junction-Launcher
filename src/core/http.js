@@ -8,6 +8,7 @@ const path = require('path');
 const crypto = require('crypto');
 const { once } = require('events');
 const { ensureDir, exists, hashFile } = require('./util');
+const { currentTask, CancelledError, abortable } = require('./taskcontext');
 
 const VERSION = require('../../package.json').version;
 const USER_AGENT = `junction-launcher/${VERSION} (personal Minecraft launcher)`;
@@ -78,6 +79,7 @@ function describeError(e) {
   const code = e?.code || e?.cause?.code || '';
   if (code === 'ENOSPC') return 'Your disk is full';
   if (code === 'EACCES' || code === 'EPERM') return "Junction isn't allowed to write there";
+  if (e?.code === 'CANCELLED') return 'Cancelled';
   if (e?.name === 'AbortError' || e?.name === 'TimeoutError' || /stalled|timed? ?out|aborted/i.test(msg)) return 'The connection timed out';
   if (/ENOTFOUND|EAI_AGAIN|ECONNREFUSED|fetch failed/i.test(code + msg)) return "Couldn't connect. Check your internet connection";
   if (/ECONNRESET|socket hang up|terminated/i.test(code + msg)) return 'The connection was interrupted';
@@ -195,28 +197,55 @@ class Http {
 
   /**
    * Download url -> dest. Skips the download if dest already exists and matches the hash.
+   * Inside ctx.tasks.run() it reports bytes to the task, stops on Cancel (throws CancelledError, leaves no
+   * .part file) and, on Pause, drops the file and starts it again from scratch after Resume.
+   * `signal` overrides the task's cancel signal.
    * @returns {Promise<{path:string, skipped:boolean, sha1?:string}>}
    */
-  async download(url, dest, { sha1, sha512, size, onProgress, retries = this.retryDelays.length, idleTimeout = 45000, headers = {} } = {}) {
+  async download(url, dest, { sha1, sha512, size, onProgress, retries = this.retryDelays.length, idleTimeout = 45000, headers = {}, signal } = {}) {
+    const task = currentTask();
+    const cancel = signal || task?.signal;
+    if (cancel?.aborted) throw new CancelledError();
     if (await exists(dest)) {
-      if (sha1 && (await hashFile(dest, 'sha1')) === sha1.toLowerCase()) return { path: dest, skipped: true, sha1 };
-      if (!sha1 && sha512 && (await hashFile(dest, 'sha512')) === sha512.toLowerCase()) return { path: dest, skipped: true };
-      if (!sha1 && !sha512 && size && (await fsp.stat(dest)).size === size) return { path: dest, skipped: true };
+      let same = false;
+      if (sha1) same = (await hashFile(dest, 'sha1')) === sha1.toLowerCase();
+      else if (sha512) same = (await hashFile(dest, 'sha512')) === sha512.toLowerCase();
+      else if (size) same = (await fsp.stat(dest)).size === size;
+      if (same) {
+        task?.addSkipped(size || (await fsp.stat(dest)).size);
+        return { path: dest, skipped: true, sha1 };
+      }
     }
     await ensureDir(path.dirname(dest));
     const gate = this.gateFor(url);
+    const name = path.basename(dest);
     let lastErr;
-    for (let attempt = 0; attempt <= retries; attempt++) {
+    let attempt = 0;
+    while (attempt <= retries) {
+      if (cancel?.aborted) throw new CancelledError();
+      if (task) await task.waitIfPaused(); // rejects with CancelledError if cancelled while paused
       const tmp = `${dest}.part-${crypto.randomBytes(3).toString('hex')}`;
       const ac = new AbortController();
+      let why = null; // 'cancel' | 'pause' when we aborted on purpose
+      const stop = (reason) => () => { why = why || reason; ac.abort(new Error(reason === 'cancel' ? 'Cancelled' : 'Paused')); };
+      const onCancel = stop('cancel');
+      const onPause = stop('pause');
+      const pauseSig = task?.pauseSignal();
+      if (cancel) cancel.addEventListener('abort', onCancel, { once: true });
+      if (pauseSig) pauseSig.addEventListener('abort', onPause, { once: true });
+      if (pauseSig?.aborted) onPause();
       let timer;
       let wait = 0;
+      let handle = null;
+      let ok = false;
       const kick = () => {
         clearTimeout(timer);
         timer = setTimeout(() => ac.abort(new Error(`Download stalled: ${url}`)), idleTimeout);
       };
-      if (gate) await gate.acquire();
+      let gated = false;
       try {
+        if (gate) { await gate.acquire(); gated = true; }
+        if (ac.signal.aborted) throw new Error('aborted');
         kick();
         const res = await this.fetch(url, { headers: this.headersFor(url, headers), signal: ac.signal, redirect: 'follow' });
         if (!res.ok) {
@@ -227,6 +256,7 @@ class Http {
           throw new HttpError(res.status, url, text, { retryAfter: parseRetryAfter(res.headers.get('retry-after')) });
         }
         const total = Number(res.headers.get('content-length')) || size || 0;
+        handle = task?.fileStart(name, total) || null;
         const h1 = crypto.createHash('sha1');
         const h512 = sha512 ? crypto.createHash('sha512') : null;
         const out = fs.createWriteStream(tmp);
@@ -238,6 +268,7 @@ class Http {
             h1.update(chunk);
             if (h512) h512.update(chunk);
             if (!out.write(chunk)) await once(out, 'drain');
+            if (handle) handle.progress(received, total);
             if (onProgress) onProgress(received, total);
           }
         } finally {
@@ -250,17 +281,25 @@ class Http {
           if (got512 !== sha512.toLowerCase()) throw new Error(`SHA-512 mismatch for ${path.basename(dest)}`);
         }
         await fsp.rename(tmp, dest);
+        ok = true;
         return { path: dest, skipped: false, sha1: got1 };
       } catch (e) {
         lastErr = e;
         await fsp.rm(tmp, { force: true }).catch(() => {});
-        if (!isRetryable(e) || attempt >= retries) break;
-        wait = this.backoff(attempt, e);
+        if (why === 'cancel' || cancel?.aborted) throw new CancelledError();
+        if (why === 'pause') wait = -1; // not a failure: wait for Resume, then start this file again
+        else if (!isRetryable(e) || attempt >= retries) { task?.noteFailure(name, describeError(e)); break; }
+        else wait = this.backoff(attempt, e);
       } finally {
         clearTimeout(timer);
-        if (gate) gate.release(); // never hold a slot while waiting to retry
+        if (handle) handle.end(ok);
+        if (cancel) cancel.removeEventListener('abort', onCancel);
+        if (pauseSig) pauseSig.removeEventListener('abort', onPause);
+        if (gate && gated) gate.release(); // never hold a slot while waiting to retry
       }
-      if (wait) await this.sleep(wait);
+      if (wait === -1) continue; // paused: the top of the loop waits for Resume
+      if (wait) await abortable(this.sleep(wait), cancel);
+      attempt++;
     }
     throw lastErr;
   }
