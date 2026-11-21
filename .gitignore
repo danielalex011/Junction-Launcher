@@ -158,3 +158,6 @@ vite.config.ts.timestamp-*
 
 # Sign-in app ID and CurseForge key for builds. Never commit this.
 build-config.json
+
+# Electron user data from screenshot runs (they belong in the system temp folder)
+tmpud-*/

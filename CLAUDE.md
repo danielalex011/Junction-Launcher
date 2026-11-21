@@ -87,6 +87,7 @@ Data flow for a feature: core function → `handle('x:y', …)` in main.js → `
 ## Conventions
 
 - Every change set that ships: bump `version` in package.json (patch: 0.1.7 → 0.1.8) and add/adjust tests.
+- Before saying something is or isn't committed (or which version a change is in), check with `git log` and `git status`. The maintainer commits on his own, so the session's memory is not a reliable source.
 - Commit message format (the maintainer pastes this into GitHub Desktop):
   ```
   Summary:  vX.Y.Z: <short description, under ~70 chars>
@@ -120,5 +121,7 @@ npm start
 ```
 
 Search "slow" under Modpacks in the mock network for a pack with big, slowly streaming files (`JUNCTION_SLOW_MBPS`, default 1.5): handy for the Activity panel. If another Junction is open, add `--user-data-dir=<temp folder>` to `npx electron .`.
+
+Electron user-data folders for screenshot runs (`--user-data-dir`) always go in the system temp folder (`%TEMP%`, e.g. `%TEMP%\junction-ud-1280x800`), never inside the repo. `tmpud-*/` is in .gitignore as a safety net.
 
 `JUNCTION_SCREENSHOT=<png>` (plus optional `JUNCTION_SCREENSHOT_JS="go('settings')"` and `JUNCTION_SCREENSHOT_WAIT=1500`) makes the app run the snippet, save a screenshot and quit. It's handy for checking UI changes.
