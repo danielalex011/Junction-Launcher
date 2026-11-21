@@ -3,26 +3,17 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const { makeCtx } = require('./helpers');
 const { Instances } = require('../src/core/instances');
-const { Home, pickJumpBackIn, UPDATES_TTL } = require('../src/core/home');
+const { Home, orderInstances, summarizeUpdates, UPDATES_TTL } = require('../src/core/home');
 
 const inst = (id, o = {}) => ({ id, name: id, created: 1000, lastPlayed: null, ...o });
 
-test('jump back in: most recently played first, at most 6, unplayed ones left out', () => {
-  const list = [inst('a', { lastPlayed: 100 }), inst('b', { lastPlayed: 500 }), inst('never', { created: 9999 }),
-    ...Array.from({ length: 6 }, (_, n) => inst(`p${n}`, { lastPlayed: 200 + n }))];
-  const r = pickJumpBackIn(list);
-  assert.equal(r.fallback, false);
-  assert.equal(r.items.length, 6);
-  assert.equal(r.items[0].id, 'b');
-  assert.ok(!r.items.some((i) => i.id === 'never'));
-  assert.deepEqual(r.items.slice(1).map((i) => i.id), ['p5', 'p4', 'p3', 'p2', 'p1']);
-});
-
-test('jump back in: when nothing was played, the newest created or imported instances', () => {
-  const r = pickJumpBackIn([inst('old', { created: 1 }), inst('new', { created: 30 }), inst('mid', { created: 20 })]);
-  assert.equal(r.fallback, true);
-  assert.deepEqual(r.items.map((i) => i.id), ['new', 'mid', 'old']);
-  assert.deepEqual(pickJumpBackIn([]), { items: [], fallback: true });
+test('your instances row: played ones first (latest first), then never-played ones, newest first, capped', () => {
+  const list = [inst('a', { lastPlayed: 100 }), inst('b', { lastPlayed: 500 }), inst('old', { created: 1 }), inst('new', { created: 9999 })];
+  assert.deepEqual(orderInstances(list).map((i) => i.id), ['b', 'a', 'new', 'old']);
+  assert.deepEqual(orderInstances([]), []);
+  const many = Array.from({ length: 30 }, (_, n) => inst(`i${n}`, { lastPlayed: n + 1 }));
+  assert.equal(orderInstances(many).length, 16);
+  assert.equal(orderInstances(many)[0].id, 'i29');
 });
 
 async function setup({ updatesFor = {}, hits = [{ source: 'modrinth', id: 'P1', title: 'Pack' }] } = {}) {
@@ -80,4 +71,30 @@ test('home: a failed check keeps the old numbers, and popular packs come from th
   assert.equal(st.updates.length, 2, 'offline: still shows the last known result');
   assert.equal(st.popular[0].title, 'Pack');
   assert.equal(st.popularStale, false);
+});
+
+test('summary: instances with mod updates, total updates, and modpack updates named', () => {
+  const up = (name, count, pack = null) => ({ instanceId: name, name, count, pack });
+  assert.deepEqual(summarizeUpdates([]), { instances: 0, mods: 0, packs: 0, text: '' });
+  assert.equal(summarizeUpdates([up('A', 1)]).text, '1 instance has 1 update');
+  const s = summarizeUpdates([up('A', 13), up('B', 20), up('C', 7), up('D', 5), up('E', 3, { versionName: '1.0' }), up('Prominence II', 0, { versionName: '4.2.0' })]);
+  assert.equal(s.mods, 48);
+  assert.equal(s.instances, 6);
+  assert.equal(s.packs, 2);
+  assert.equal(s.text, '5 instances have 48 updates · 2 modpack updates available');
+  assert.equal(summarizeUpdates([up('A', 13), up('Prominence II', 0, { versionName: '4.2.0' })]).text, '1 instance has 13 updates · Prominence II 4.2.0 available');
+  assert.equal(summarizeUpdates([up('Prominence II', 0, { versionName: '4.2.0' })]).text, 'Prominence II 4.2.0 available', 'a pack update alone has no mod part');
+});
+
+test('home state carries the summary built from the cached counts and pack updates', async () => {
+  const s = await setup();
+  s.home.content.checkUpdates = async (id) => (id === s.a.id ? [{}, {}, {}] : [{}]);
+  s.home.packs = { needsLabels: async () => false, checkUpdate: async (id) => (id === s.b.id ? { versionId: 'v2', versionName: '4.2.0' } : null) };
+  await s.instances.update(s.b.id, { pack: { source: 'modrinth', name: 'Beta Pack', versionId: 'v1', versionName: '4.1.0' } });
+  await s.home.refresh();
+  const st = await s.home.state();
+  assert.equal(st.summary.mods, 4);
+  assert.equal(st.summary.instances, 2);
+  assert.equal(st.summary.text, '2 instances have 4 updates · Beta 4.2.0 available');
+  assert.deepEqual(st.updates.find((u) => u.name === 'Beta').pack, { versionId: 'v2', versionName: '4.2.0' });
 });

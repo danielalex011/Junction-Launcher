@@ -11,6 +11,21 @@ const { readJson, writeJson } = require('../util');
 const MS = 'https://login.microsoftonline.com/consumers/oauth2/v2.0';
 const SCOPE = 'XboxLive.signin offline_access';
 
+/** Azure answers AADSTS70002 / AADSTS7000218 when the app registration doesn't allow public client flows (the device code needs it). */
+const PUBLIC_CLIENT_MESSAGE = "The app registration doesn't allow public client flows. In Azure, open the app's Authentication page and turn on Allow public client flows.";
+function isPublicClientError(body) {
+  const text = typeof body === 'string' ? body : JSON.stringify(body || {});
+  return /AADSTS(70002|7000218)\b/.test(text);
+}
+/** Microsoft's token/device-code error body (object or JSON text) -> one plain sentence, never the raw JSON. */
+function msErrorMessage(body, fallback) {
+  if (isPublicClientError(body)) return PUBLIC_CLIENT_MESSAGE;
+  let b = body;
+  if (typeof b === 'string') { try { b = JSON.parse(b); } catch { b = null; } }
+  const d = String(b?.error_description || '').split(/\r?\n/)[0].trim();
+  return d || b?.error || fallback;
+}
+
 class AuthError extends Error {
   constructor(message, code) { super(message); this.code = code; }
 }
@@ -126,12 +141,18 @@ class Accounts {
   /** Step 1: start device code login. Returns what the UI shows the user. */
   async beginMicrosoftLogin() {
     const client_id = this.clientId();
-    const res = await this.ctx.http.request(`${MS}/devicecode`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: form({ client_id, scope: SCOPE }),
-      retries: 1,
-    });
+    let res;
+    try {
+      res = await this.ctx.http.request(`${MS}/devicecode`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: form({ client_id, scope: SCOPE }),
+        retries: 1,
+      });
+    } catch (e) {
+      if (e && e.status && isPublicClientError(e.body)) throw new AuthError(PUBLIC_CLIENT_MESSAGE, 'PUBLIC_CLIENT');
+      throw e;
+    }
     const dc = await res.json();
     const loginId = crypto.randomBytes(8).toString('hex');
     this.pending.set(loginId, { ...dc, client_id, cancelled: false, started: Date.now() });
@@ -165,7 +186,7 @@ class Accounts {
         if (body.error === 'slow_down') { interval += 5000; continue; }
         if (body.error === 'expired_token') throw new AuthError('The code expired. Try again.', 'EXPIRED');
         if (body.error === 'authorization_declined') throw new AuthError('Sign-in was declined.', 'DECLINED');
-        throw new AuthError(body.error_description || body.error || `Token request failed (${res.status})`, body.error);
+        throw new AuthError(msErrorMessage(body, `Token request failed (${res.status})`), isPublicClientError(body) ? 'PUBLIC_CLIENT' : body.error);
       }
       throw new AuthError('The code expired. Try again.', 'EXPIRED');
     } finally {
@@ -279,4 +300,4 @@ class Accounts {
   }
 }
 
-module.exports = { Accounts, AuthError, offlineUuid };
+module.exports = { Accounts, AuthError, offlineUuid, msErrorMessage, isPublicClientError, PUBLIC_CLIENT_MESSAGE };

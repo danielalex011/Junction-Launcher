@@ -7,18 +7,32 @@ const { searchAll } = require('./sources');
 
 const UPDATES_TTL = 4 * 60 * 60 * 1000; // re-check mod updates at most every 4 hours
 const POPULAR_TTL = 6 * 60 * 60 * 1000;
-const RECENT_COUNT = 6;
+const ROW_COUNT = 16; // how many instances the Home row holds (the Library has them all)
 const POPULAR_COUNT = 8;
 
-/**
- * "Jump back in": the instances played most recently. When nothing has been played yet,
- * the most recently created or imported ones instead (fallback: true).
- */
-function pickJumpBackIn(list, limit = RECENT_COUNT) {
+/** Your instances, for Home's sideways row: most recently played first, then the never-played ones, newest first. */
+function orderInstances(list, limit = ROW_COUNT) {
   const played = list.filter((i) => i.lastPlayed).sort((a, b) => b.lastPlayed - a.lastPlayed);
-  if (played.length) return { items: played.slice(0, limit), fallback: false };
-  const fresh = [...list].sort((a, b) => (b.created || 0) - (a.created || 0));
-  return { items: fresh.slice(0, limit), fallback: true };
+  const fresh = list.filter((i) => !i.lastPlayed).sort((a, b) => (b.created || 0) - (a.created || 0));
+  return [...played, ...fresh].slice(0, limit);
+}
+
+const plural = (n, one, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
+
+/**
+ * The one-line summary for Home's update bar, from the list state() builds.
+ *   "5 instances have 48 updates · Prominence II 4.2.0 available"
+ * Mod updates are counted per instance; a modpack update is named (or counted when there are many).
+ */
+function summarizeUpdates(updates) {
+  const withMods = updates.filter((u) => u.count > 0);
+  const packs = updates.filter((u) => u.pack);
+  const mods = withMods.reduce((n, u) => n + u.count, 0);
+  const parts = [];
+  if (withMods.length) parts.push(`${plural(withMods.length, 'instance')} ${withMods.length === 1 ? 'has' : 'have'} ${plural(mods, 'update')}`);
+  if (packs.length === 1) parts.push(`${packs[0].name} ${packs[0].pack.versionName} available`);
+  else if (packs.length > 1) parts.push(`${plural(packs.length, 'modpack update')} available`);
+  return { instances: updates.length, mods, packs: packs.length, text: parts.join(' · ') };
 }
 
 class Home {
@@ -52,12 +66,11 @@ class Home {
       }))
       .filter((u) => u.count > 0 || u.pack)
       .sort((a, b) => Boolean(b.pack) - Boolean(a.pack) || b.count - a.count || a.name.localeCompare(b.name));
-    const { items, fallback } = pickJumpBackIn(list);
     return {
-      recent: items,
-      fallback,
+      recent: orderInstances(list),
       empty: list.length === 0,
       updates,
+      summary: summarizeUpdates(updates),
       updatesCheckedAt: cache.updates.checkedAt || null,
       updatesStale: now - (cache.updates.checkedAt || 0) > UPDATES_TTL,
       popular: cache.popular.hits,
@@ -131,4 +144,4 @@ class Home {
   }
 }
 
-module.exports = { Home, pickJumpBackIn, UPDATES_TTL, POPULAR_TTL };
+module.exports = { Home, orderInstances, summarizeUpdates, UPDATES_TTL, POPULAR_TTL };

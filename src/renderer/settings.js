@@ -21,6 +21,7 @@ async function renderSettings(_p, token) {
     srcCf: h('input', { type: 'checkbox', checked: s.sources?.curseforge !== false }),
     closeOnLaunch: h('input', { type: 'checkbox', checked: s.closeOnLaunch }),
     showSnapshots: h('input', { type: 'checkbox', checked: s.showSnapshots }),
+    showNews: h('input', { type: 'checkbox', checked: s.showNews !== false }),
     includeOptional: h('input', { type: 'checkbox', checked: s.includeOptionalPackFiles }),
   };
   const save = async () => {
@@ -30,7 +31,7 @@ async function renderSettings(_p, token) {
       jvmArgs: f.jvmArgs.value.trim(), javaPath: f.javaPath.value.trim(), concurrency: Number(f.concurrency.value),
       preferredSource: f.preferredSource.value,
       sources: { modrinth: f.srcMr.checked, curseforge: f.srcCf.checked },
-      closeOnLaunch: f.closeOnLaunch.checked, showSnapshots: f.showSnapshots.checked, includeOptionalPackFiles: f.includeOptional.checked,
+      closeOnLaunch: f.closeOnLaunch.checked, showSnapshots: f.showSnapshots.checked, includeOptionalPackFiles: f.includeOptional.checked, showNews: f.showNews.checked,
     };
     if (f.cfApiKey.value.trim()) patch.cfApiKey = f.cfApiKey.value.trim();
     state.settings = await call('settings:set', patch);
@@ -79,6 +80,7 @@ async function renderSettings(_p, token) {
       h('div', { style: { display: 'flex', flexDirection: 'column', gap: '10px' } },
         h('label', { class: 'check' }, f.closeOnLaunch, 'Hide the launcher while the game is running'),
         h('label', { class: 'check' }, f.showSnapshots, 'Show snapshots when creating instances'),
+        h('label', { class: 'check' }, f.showNews, 'Show Minecraft news on the Home page'),
         h('label', { class: 'check' }, f.includeOptional, 'Include optional files when installing Modrinth packs'),
         h('label', { class: 'field', style: { maxWidth: '260px' } }, 'Parallel downloads', f.concurrency))),
     h('div', { class: 'section' }, h('h3', null, 'Storage & privacy'),

@@ -19,6 +19,7 @@ function defaults() {
     includeOptionalPackFiles: true,
     updateChannel: 'alpha', // newest of: release | beta | alpha
     confirmBeforeDelete: true,
+    showNews: true, // Minecraft news carousel on Home
     cfApiBase: 'https://api.curseforge.com',
   };
 }

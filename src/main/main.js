@@ -9,6 +9,7 @@ const { createContext } = require('../core/context');
 const { Accounts } = require('../core/auth/accounts');
 const { Instances, isLinkedPack } = require('../core/instances');
 const { createSources, searchAll, compatibleLoaders } = require('../core/sources');
+const { News } = require('../core/news');
 const { Home } = require('../core/home');
 const { composeHead } = require('../core/skin');
 const { Skins } = require('../core/skins');
@@ -29,7 +30,7 @@ const { HttpError, describeError } = require('../core/http');
 
 const VERSION = require('../../package.json').version;
 let win = null;
-let ctx; let accounts; let skins; let instances; let sources; let content; let modpacks; let home; let packlink; let errorLog;
+let ctx; let accounts; let skins; let instances; let sources; let content; let modpacks; let home; let news; let packlink; let errorLog;
 const running = new Map();
 const blockedSessions = new Map();
 let pendingOpenFiles = [];
@@ -280,6 +281,10 @@ function registerIpc() {
     return r;
   });
   const homeView = (d) => ({ ...d, recent: d.recent.map(withState), updates: d.updates.map((u) => ({ ...u, iconSrc: withState({ ...u, id: u.instanceId }).iconSrc })) });
+  // Cached update info for the badges on instance cards (no network): { [instanceId]: { count, pack: versionName|null } }
+  handle('home:badges', async () => Object.fromEntries((await home.state()).updates.map((u) => [u.instanceId, { count: u.count, pack: u.pack ? u.pack.versionName : null, packVersionId: u.pack ? u.pack.versionId : null }])));
+  handle('news:get', async () => news.state());
+  handle('news:refresh', async (opts) => news.refresh(opts || {}));
   handle('home:state', async () => homeView(await home.state()));
   handle('home:refresh', async (opts) => { await home.refresh(opts || {}); return homeView(await home.state()); });
   handle('content:applyUpdates', async (id, updates) => {
@@ -635,6 +640,7 @@ app.whenReady().then(async () => {
   modpacks = new Modpacks(ctx, instances, content, sources);
   packlink = new PackLink(ctx, instances, content, modpacks, sources);
   home = new Home(ctx, instances, content, sources, packlink);
+  news = new News(ctx);
   ctx.tasks.on('update', (t) => send('task:update', t));
   ctx.tasks.on('history', (list) => send('task:history', list));
   protocol.handle('junction-icon', async (req) => {
