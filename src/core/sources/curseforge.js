@@ -13,6 +13,17 @@ const enc = encodeURIComponent;
 
 function isMcVersion(s) { return /^\d+\.\d+(\.\d+)?(-snapshot.*)?$/.test(s); }
 
+/** "Controlling-fabric-26.3-26.3.4.jar" -> "26.3.4", "[26.3 Fabric] Mouse Tweaks 2.31" -> "2.31". */
+function cleanCfVersion(displayName, mcVersions = []) {
+  const base = String(displayName || '').replace(/\.(jar|zip)$/i, '').replace(/\[.*?\]|\(.*?\)/g, ' ').trim();
+  const tokens = base.split(/[\s_-]+/).filter(Boolean);
+  for (let i = tokens.length - 1; i >= 0; i--) {
+    const t = tokens[i].replace(/^v(?=\d)/i, '');
+    if (/^\d+(\.\d+)+/.test(t) && !mcVersions.includes(t)) return t;
+  }
+  return base || String(displayName || '');
+}
+
 function normalizeMod(m) {
   const idx = m.latestFilesIndexes || [];
   return {
@@ -44,7 +55,7 @@ function normalizeFile(f) {
     id: f.id,
     projectId: f.modId,
     name: f.displayName,
-    versionNumber: f.displayName,
+    versionNumber: cleanCfVersion(f.displayName, gv.filter(isMcVersion)),
     gameVersions: gv.filter(isMcVersion),
     loaders: gv.map((g) => g.toLowerCase()).filter((g) => LOADER_NAMES[g]),
     releaseType: RELEASE[f.releaseType] || 'release',
@@ -165,4 +176,4 @@ class CurseForge {
   }
 }
 
-module.exports = { CurseForge, normalizeFile, normalizeMod, CLASS, CLASS_REV, LOADER_TYPE };
+module.exports = { CurseForge, normalizeFile, normalizeMod, cleanCfVersion, CLASS, CLASS_REV, LOADER_TYPE };

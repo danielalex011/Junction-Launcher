@@ -63,6 +63,14 @@ function h(tag, props, ...kids) {
   return el;
 }
 
+// Conditional children are written as `cond ? el : null`; skip those instead of rendering the text "null".
+for (const proto of [Element.prototype, DocumentFragment.prototype]) {
+  for (const name of ['replaceChildren', 'append', 'prepend']) {
+    const orig = proto[name];
+    proto[name] = function patched(...kids) { return orig.apply(this, kids.filter((k) => k !== null && k !== undefined && k !== false)); };
+  }
+}
+
 const $ = (sel, root = document) => root.querySelector(sel);
 const view = () => $('#view');
 
@@ -120,6 +128,26 @@ function instSubtitle(inst) {
   const l = inst.loader || { type: 'vanilla' };
   const lv = l.type !== 'vanilla' && l.version ? ` ${l.version}` : '';
   return `${LOADER[l.type] || l.type}${lv} · Minecraft ${inst.mcVersion}`;
+}
+
+// ---------------------------------------------------------------- "already installed" detection
+function matchKey(s) {
+  return String(s || '').toLowerCase().replace(/\(.*?\)|\[.*?\]/g, '').replace(/[^a-z0-9]/g, '');
+}
+
+/** Is this search hit already in the instance? Checks project ids on both sites, then title / mod id. */
+function installedMatch(hit, installed) {
+  if (!installed) return null;
+  const refs = [hit, ...(hit.alsoOn || [])];
+  for (const r of refs) {
+    const m = installed.projects[`${r.source}:${r.id}`];
+    if (m) return { ...m, source: r.source, projectId: r.id, exact: true };
+  }
+  const titles = new Set(installed.titles);
+  const modIds = new Set(installed.modIds);
+  if (titles.has(matchKey(hit.title))) return { exact: false };
+  if (refs.some((r) => r.slug && modIds.has(matchKey(r.slug)))) return { exact: false };
+  return null;
 }
 
 // ---------------------------------------------------------------- toasts, modals, menus
@@ -661,7 +689,7 @@ async function renderContentTab(inst, type, root, token) {
           h('button', { class: 'btn ghost icon', type: 'button', title: 'More', onclick: (e) => popupMenu(e.currentTarget, [
             { label: it.pinned ? 'Unpin version' : 'Pin this version (skip updates)', icon: 'pin', onClick: async () => { await call('content:pin', inst.id, it.file, !it.pinned); it.pinned = !it.pinned; renderList(); } },
             ...(it.url ? [{ label: `Open on ${SRC[it.source]}`, icon: 'external', onClick: () => call('shell:open', it.url) }] : []),
-            ...(it.projectId && it.source !== 'local' ? [{ label: 'Change version…', icon: 'refresh', onClick: () => projectDialog({ source: it.source, id: it.projectId, title: it.title, icon: it.icon, type }, { instance: inst, tab: 'versions' }) }] : []),
+            ...(it.projectId && it.source !== 'local' ? [{ label: 'Change version…', icon: 'refresh', onClick: () => projectDialog({ source: it.source, id: it.projectId, title: it.title, icon: it.icon, type }, { instance: inst, tab: 'versions', onInstalled: () => renderContentTab(inst, type, root, renderToken) }) }] : []),
             '-',
             { label: 'Remove', icon: 'trash', danger: true, onClick: async () => {
               await call('content:remove', inst.id, [it.file]);
@@ -871,6 +899,16 @@ async function renderBrowse(params, token) {
   browseState.page = 0;
   const versions = await loadMcVersions();
   if (stale(token)) return;
+  const bctx = {
+    installed: inst ? await call('content:installed', inst.id).catch(() => null) : null,
+    cards: [],
+    async refresh() {
+      if (!inst) return;
+      this.installed = await call('content:installed', inst.id).catch(() => this.installed);
+      for (const fn of this.cards) fn();
+    },
+  };
+  if (stale(token)) return;
   const results = h('div', { class: 'results' });
   const more = h('div', { class: 'row', style: { justifyContent: 'center', marginTop: '16px' } });
   const warnBox = h('div');
@@ -884,10 +922,10 @@ async function renderBrowse(params, token) {
       const r = await call('browse:search', { ...browseState, pageSize: 20 });
       if (stale(myToken)) return;
       warnBox.replaceChildren(...r.warnings.map((w) => h('div', { class: 'notice warn' }, icon('alert'), w)));
-      if (!append) { results.replaceChildren(); lastHits = []; }
+      if (!append) { results.replaceChildren(); lastHits = []; bctx.cards = []; }
       lastHits.push(...r.hits);
       if (!lastHits.length) results.replaceChildren(h('div', { class: 'empty' }, h('h2', null, 'No results'), h('div', null, 'Try another search or loosen the filters.')));
-      for (const hit of r.hits) results.append(resultCard(hit, inst));
+      for (const hit of r.hits) results.append(resultCard(hit, inst, bctx));
       const anyMore = Object.values(r.totals).some((t) => t > (browseState.page + 1) * 20);
       more.replaceChildren(anyMore ? h('button', { class: 'btn', type: 'button', onclick: () => { browseState.page++; doSearch(true); } }, 'Load more') : null);
     } catch (e) {
@@ -940,15 +978,34 @@ async function renderBrowse(params, token) {
   doSearch();
 }
 
-function resultCard(hit, inst) {
+function resultCard(hit, inst, bctx = null) {
   const sources = [hit, ...(hit.alsoOn || [])];
-  const installBtn = h('button', { class: 'btn primary', type: 'button' }, icon('download'), hit.type === 'modpack' ? 'Install' : inst ? 'Install' : 'Install…');
-  installBtn.onclick = async (e) => {
-    e.stopPropagation();
-    installBtn.disabled = true;
-    try { await quickInstall(hit, inst); } finally { installBtn.disabled = false; }
+  const slot = h('div');
+  const onInstalled = () => bctx?.refresh();
+  const renderAction = () => {
+    const match = inst ? installedMatch(hit, bctx?.installed) : null;
+    if (match) {
+      const from = match.exact && match.source !== hit.source ? ` (from ${SRC[match.source]})` : '';
+      slot.replaceChildren(h('button', {
+        class: 'btn installed', type: 'button',
+        title: `Already in ${inst.name}${from}. Click to see versions or switch to another one.`,
+        onclick: (e) => { e.stopPropagation(); projectDialog(hit, { instance: inst, tab: 'versions', onInstalled }); },
+      }, icon('check'), 'Installed'));
+      return;
+    }
+    const installBtn = h('button', { class: 'btn primary', type: 'button' }, icon('download'), hit.type === 'modpack' ? 'Install' : inst ? 'Install' : 'Install…');
+    installBtn.onclick = async (e) => {
+      e.stopPropagation();
+      installBtn.disabled = true;
+      try {
+        if (await quickInstall(hit, inst)) await onInstalled();
+      } finally { installBtn.disabled = false; }
+    };
+    slot.replaceChildren(installBtn);
   };
-  return h('div', { class: 'result', onclick: () => projectDialog(hit, { instance: inst }) },
+  renderAction();
+  if (bctx) bctx.cards.push(renderAction);
+  return h('div', { class: 'result', onclick: () => projectDialog(hit, { instance: inst, onInstalled }) },
     avatar(hit),
     h('div', { style: { minWidth: 0 } },
       h('div', { class: 'row', style: { gap: '8px' } }, h('span', { class: 'r-title ellipsis' }, hit.title), hit.author ? h('span', { class: 'r-author ellipsis' }, `by ${hit.author}`) : null),
@@ -958,7 +1015,7 @@ function resultCard(hit, inst) {
         h('span', null, icon('download', 12), ` ${fmtNum(hit.totalDownloads || hit.downloads)}`),
         hit.updated ? h('span', null, `Updated ${ago(hit.updated)}`) : null,
         ...(hit.categories || []).slice(0, 3).map((c) => h('span', { class: 'pill' }, c)))),
-    installBtn);
+    slot);
 }
 
 async function quickInstall(hit, inst, versionId, sourceOverride) {
@@ -969,18 +1026,20 @@ async function quickInstall(hit, inst, versionId, sourceOverride) {
       const r = await call('pack:installFromSource', { source, projectId, versionId, title: hit.title });
       await handleInstallResult(r);
       go('instance', { id: r.instance.id });
-      return;
+      return true;
     }
     let target = inst;
     if (!target) target = await pickInstance(hit);
-    if (!target) return;
+    if (!target) return false;
     const r = await call('content:install', target.id, { source, projectId, type: hit.type, versionId, title: hit.title });
     await handleInstallResult(r, target.id);
+    return true;
   } catch (e) {
     if (e.manualUrl) {
       const ok = await confirmDialog('Manual download needed', e.message, 'Open download page');
       if (ok) call('shell:open', e.manualUrl);
     } else toast(e.message, 'error');
+    return false;
   }
 }
 
@@ -992,21 +1051,24 @@ async function pickInstance(hit) {
     if (go2) newInstanceDialog();
     return null;
   }
+  const installedIn = await Promise.all(ok.map((i) => call('content:installed', i.id).then((inf) => installedMatch(hit, inf)).catch(() => null)));
   return new Promise((resolve) => {
     let picked = false;
     const m = modal({
       title: `Install ${hit.title} to…`,
-      body: h('div', { class: 'list' }, ok.map((i) => h('div', {
+      body: h('div', { class: 'list' }, ok.map((i, n) => h('div', {
         class: 'item', style: { gridTemplateColumns: '34px 1fr auto', cursor: 'pointer' },
+        title: installedIn[n] ? 'Already installed here. Picking it again installs the newest compatible version.' : null,
         onclick: () => { picked = true; m.close(); resolve(i); },
-      }, avatar(i, 'sm'), h('div', null, h('div', { class: 'i-title' }, i.name), h('div', { class: 'i-file' }, instSubtitle(i))), icon('download')))),
+      }, avatar(i, 'sm'), h('div', null, h('div', { class: 'i-title' }, i.name), h('div', { class: 'i-file' }, instSubtitle(i))),
+      installedIn[n] ? h('span', { class: 'badge good plain' }, 'Installed') : icon('download')))),
       onClose: () => { if (!picked) resolve(null); },
     });
   });
 }
 
 // ----- project details
-async function projectDialog(hit, { instance = null, tab = 'about' } = {}) {
+async function projectDialog(hit, { instance = null, tab = 'about', onInstalled = null } = {}) {
   const alts = [{ source: hit.source, id: hit.id, url: hit.url }, ...(hit.alsoOn || [])];
   let current = alts[0];
   const body = h('div', { style: { display: 'flex', flexDirection: 'column', gap: '12px', flex: 1, minHeight: 0 } });
@@ -1054,6 +1116,8 @@ async function projectDialog(hit, { instance = null, tab = 'about' } = {}) {
 
   async function renderVersions(project, type, pane) {
     pane.replaceChildren(loading());
+    const installed = instance && type !== 'modpack' ? await call('content:installed', instance.id).catch(() => null) : null;
+    const mine = installed?.projects[`${current.source}:${current.id}`] || null;
     const filters = instance ? { gameVersion: instance.mcVersion, loader: instance.loader?.type, type } : { gameVersion: browseState.gameVersion, loader: browseState.loader, type };
     try {
       let list;
@@ -1063,8 +1127,20 @@ async function projectDialog(hit, { instance = null, tab = 'about' } = {}) {
         pane.replaceChildren(h('div', { class: 'empty' }, h('h2', null, 'No matching versions'), h('div', null, instance ? `Nothing for Minecraft ${instance.mcVersion} + ${LOADER[instance.loader?.type] || ''}.` : 'Try clearing the filters on the Browse page.')));
         return;
       }
-      pane.replaceChildren(h('div', { class: 'list vlist', style: { overflow: 'auto' } }, list.map((v) => {
+      const otherSite = !mine && installedMatch({ ...hit, source: current.source, id: current.id }, installed);
+      const note = mine
+        ? h('div', { class: 'notice info', style: { margin: 0 } }, icon('check'), `Installed in ${instance.name}. Pick another version to switch to it.`)
+        : otherSite ? h('div', { class: 'notice info', style: { margin: 0 } }, icon('info'), `${instance.name} already has this mod${otherSite.source ? ` from ${SRC[otherSite.source]}` : ''}. Installing from here replaces that copy.`) : null;
+      pane.replaceChildren(note, h('div', { class: 'list vlist', style: { overflow: 'auto', marginTop: note ? '10px' : 0 } }, list.map((v) => {
         const file = v.files.find((f) => f.primary) || v.files[0];
+        const isCurrent = mine && String(v.id) === mine.versionId;
+        if (isCurrent) {
+          return h('div', { class: 'item current' },
+            h('div', { style: { minWidth: 0 } }, h('div', { class: 'i-title ellipsis' }, v.name || v.versionNumber), h('div', { class: 'i-file ellipsis' }, file?.filename || '')),
+            h('div', { class: 'i-ver ellipsis' }, `${v.gameVersions.slice(0, 3).join(', ')}${v.loaders.length ? ` · ${v.loaders.map((l) => LOADER[l] || l).join(', ')}` : ''}`),
+            h('div', null, h('span', { class: `badge plain ${v.releaseType === 'release' ? 'good' : 'warn'}` }, v.releaseType), h('div', { class: 'i-file' }, ago(v.date))),
+            h('div', { class: 'i-actions' }, h('span', { class: 'badge good plain' }, icon('check', 12), 'Installed')));
+        }
         return h('div', { class: 'item' },
           h('div', { style: { minWidth: 0 } }, h('div', { class: 'i-title ellipsis' }, v.name || v.versionNumber), h('div', { class: 'i-file ellipsis' }, file?.filename || '')),
           h('div', { class: 'i-ver ellipsis', title: `${v.gameVersions.join(', ')} · ${v.loaders.join(', ')}` }, `${v.gameVersions.slice(0, 3).join(', ')}${v.gameVersions.length > 3 ? '…' : ''}${v.loaders.length ? ` · ${v.loaders.map((l) => LOADER[l] || l).join(', ')}` : ''}`),
@@ -1073,10 +1149,14 @@ async function projectDialog(hit, { instance = null, tab = 'about' } = {}) {
             class: 'btn sm primary', type: 'button', onclick: async (e) => {
               e.currentTarget.disabled = true;
               const asHit = { ...hit, source: current.source, id: current.id, alsoOn: [], type };
-              await quickInstall(asHit, instance, v.id);
-              if (type === 'modpack') m.close();
+              const ok = await quickInstall(asHit, instance, v.id);
+              if (type === 'modpack') { m.close(); return; }
+              if (ok) {
+                if (onInstalled) await onInstalled();
+                renderVersions(project, type, pane);
+              }
             },
-          }, icon('download', 14), 'Install')));
+          }, icon('download', 14), mine ? 'Switch' : 'Install')));
       })));
     } catch (e) {
       pane.replaceChildren(h('div', { class: 'notice warn' }, icon('alert'), e.message));

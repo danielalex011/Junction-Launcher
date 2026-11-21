@@ -57,6 +57,21 @@ class ContentManager {
     return m;
   }
 
+  /** What's in an instance, for marking "Installed" in Browse. */
+  async installedInfo(instId) {
+    const out = { projects: {}, titles: [], modIds: [] };
+    for (const t of Object.keys(TYPE_DIR)) {
+      for (const it of await this.instances.listContent(instId, t)) {
+        if (it.projectId != null && it.source !== 'local') {
+          out.projects[`${it.source}:${it.projectId}`] = { file: it.file, versionId: it.versionId != null ? String(it.versionId) : null, enabled: it.enabled, type: t };
+        }
+        out.titles.push(matchKey(it.title));
+        if (it.modId) out.modIds.push(matchKey(it.modId));
+      }
+    }
+    return out;
+  }
+
   /** Summary of what's installed, for duplicate / dependency checks. */
   async installedSummary(instId) {
     const idx = await this.instances.readIndex(instId);

@@ -143,7 +143,7 @@ class Instances {
         projectId: entry.projectId || null,
         versionId: entry.versionId || null,
         title: entry.title || entry.meta?.name || base.replace(/\.(jar|zip)$/i, ''),
-        versionName: entry.versionName || entry.meta?.version || '',
+        versionName: (entry.meta?.version && !String(entry.meta.version).includes('${') ? entry.meta.version : null) || entry.versionName || '',
         icon: entry.icon || null,
         url: entry.projectUrl || null,
         modId: entry.meta?.modId || null,

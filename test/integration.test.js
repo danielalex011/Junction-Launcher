@@ -237,6 +237,13 @@ test('installs a Modrinth mod with dependencies, skipping one already installed 
   assert.equal(mods.find((m) => m.title === 'Fabric API').source, 'curseforge');
   assert.ok(!mods.some((m) => m.duplicateOf));
 
+  // Browse uses this to show "Installed" — Fabric API is known by its CurseForge id, title and mod id.
+  const info = await content.installedInfo(inst.id);
+  assert.ok(info.projects['curseforge:306612']);
+  assert.equal(info.projects['modrinth:COOL'].versionId, 'v2');
+  assert.ok(info.titles.includes('fabricapi') && info.modIds.includes('fabricapi'));
+  assert.ok(!info.projects['modrinth:P7dR8mSH'], 'not installed from Modrinth, so only title/mod-id matching finds it');
+
   // Same mod from the other site replaces the old jar instead of duplicating it.
   await content.installProject(inst.id, { source: 'modrinth', id: 'AANobbMI' }, 'mod');
   const r2 = await content.installProject(inst.id, { source: 'curseforge', id: 394468 }, 'mod');

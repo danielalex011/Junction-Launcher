@@ -88,6 +88,9 @@ a { color: var(--accent); }
 .btn.ghost { background: transparent; border-color: transparent; color: var(--muted); }
 .btn.ghost:hover { background: var(--panel-2); color: var(--text); }
 .btn.icon { padding: 7px; }
+.btn.installed { color: var(--good); border-color: rgba(60,207,142,.35); background: rgba(60,207,142,.08); }
+.btn.installed:hover { background: rgba(60,207,142,.15); }
+.item.current { background: rgba(60,207,142,.06); }
 .btn.sm { padding: 5px 9px; font-size: 12px; }
 .btn.lg { padding: 11px 18px; font-size: 14px; }
 input[type=text], input[type=number], input[type=password], input[type=search], select, textarea {

@@ -194,6 +194,7 @@ function registerIpc() {
     const r = await ctx.tasks.run(`Installing ${title || 'content'}`, (t) => content.installProject(id, { source, id: projectId }, type, { versionId, report: t.update }), { instanceId: id });
     return { ...r, blockedSession: startBlockedSession(id, r.blocked) };
   });
+  handle('content:installed', async (id) => content.installedInfo(id));
   handle('content:compatible', async (id, source, projectId, type) => {
     const inst = await instances.get(id);
     return content.compatibleVersions(source, projectId, inst, type);

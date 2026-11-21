@@ -16,6 +16,7 @@ const { offlineUuid } = require('../src/core/auth/accounts');
 const { readModMetadata } = require('../src/core/content/metadata');
 const { interleaveAndMerge, compatibleLoaders } = require('../src/core/sources');
 const { guessFromName } = require('../src/core/content/importer');
+const { cleanCfVersion } = require('../src/core/sources/curseforge');
 const { makeCtx, sha1, fabricJar, forgeJar, tmpDir } = require('./helpers');
 
 test('maven paths', () => {
@@ -189,6 +190,15 @@ test('loader compatibility (Quilt runs Fabric mods, NeoForge 1.20.1 runs Forge m
 test('guess loader & version from folder names like "Fabric 26.1.2"', () => {
   assert.deepEqual(guessFromName('Fabric 26.1.2'), { loader: 'fabric', mc: '26.1.2' });
   assert.deepEqual(guessFromName('NeoForge 1.21.1 Craftoria'), { loader: 'neoforge', mc: '1.21.1' });
+});
+
+test('CurseForge file names become clean version numbers', () => {
+  assert.equal(cleanCfVersion('Controlling-fabric-26.3-26.3.4.jar', ['26.3']), '26.3.4');
+  assert.equal(cleanCfVersion('[26.3 Fabric] Mouse Tweaks 2.31', ['26.3']), '2.31');
+  assert.equal(cleanCfVersion('Searchables-fabric-26.3-1.0.3.jar', ['26.3']), '1.0.3');
+  assert.equal(cleanCfVersion("Xaero's Minimap 25.2.0 for Fabric 26.3", ['26.3']), '25.2.0');
+  assert.equal(cleanCfVersion('sodium-fabric-0.6.1+mc1.21.1.jar', ['1.21.1']), '0.6.1+mc1.21.1');
+  assert.equal(cleanCfVersion('Just a name', []), 'Just a name');
 });
 
 test('verified download: bad hash is rejected and leaves no file', async () => {
