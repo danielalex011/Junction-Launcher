@@ -89,7 +89,16 @@ function startViewer(canvas) {
   } catch { return null; } // no WebGL: the page falls back to a flat picture
 }
 
+/** Sizes the 3D view to its column: wide windows get a bigger player, but never taller than the window can show with the buttons below it. */
+function fitViewer() {
+  if (!sk.viewer || !sk.ui?.stage) return;
+  const w = Math.max(240, sk.ui.stage.clientWidth - 34);
+  const hgt = Math.round(Math.max(300, Math.min(w * 1.35, window.innerHeight - 330)));
+  sk.viewer.setSize(w, hgt);
+}
+
 function skinsLeave() {
+  if (sk.resizer) { sk.resizer.disconnect(); window.removeEventListener('resize', fitViewer); sk.resizer = null; }
   if (sk.viewer) { try { sk.viewer.dispose(); } catch { /* already gone */ } }
   sk.viewer = null;
   sk.ui = null;
@@ -154,6 +163,7 @@ async function renderSkins(_p, token) {
   const stage = h('div', { class: 'sk-stage' },
     h('div', { class: 'sk-view' }, sk.viewer ? canvas : ui.flat, h('div', { class: 'sk-drag-hint' }, sk.viewer ? 'Drag to turn' : '')),
     ui.info, ui.controls);
+  ui.stage = stage;
 
   const picker = h('input', { type: 'file', accept: 'image/png,.png', style: { display: 'none' }, onchange: (e) => {
     const f = e.target.files?.[0];
@@ -174,6 +184,12 @@ async function renderSkins(_p, token) {
   renderCapes();
   renderWardrobe();
   renderHistory();
+  if (sk.viewer) {
+    fitViewer();
+    sk.resizer = new ResizeObserver(fitViewer);
+    sk.resizer.observe(stage);
+    window.addEventListener('resize', fitViewer);
+  }
   paintStage();
   loadProfile(token);
 }
@@ -226,9 +242,9 @@ function renderStageInfo() {
   const apply = sk.sel && h('button', { class: 'btn primary', type: 'button', disabled: !canChange() || sk.busy, title: canChange() ? null : 'Needs a Microsoft account', onclick: () => applySaved(sk.sel.kind, sk.sel, sk.model) }, icon('check'), `Apply${sk.model !== sk.sel.model ? ` with ${sk.model} arms` : ''}`);
   const back = sk.sel && h('button', { class: 'btn ghost', type: 'button', onclick: () => { sk.sel = null; sk.model = sk.profile?.skin?.variant || 'classic'; refreshAll(); paintStage(); } }, icon('arrowLeft'), 'Back to current skin');
   const walk = h('button', {
-    class: `btn sm${sk.walking ? ' on' : ''}`, type: 'button', 'aria-pressed': sk.walking ? 'true' : 'false', title: 'Walking animation',
+    class: `toggle${sk.walking ? ' on' : ''}`, type: 'button', role: 'switch', 'aria-checked': sk.walking ? 'true' : 'false', title: 'Make the player walk',
     onclick: () => { sk.walking = !sk.walking; if (sk.viewer) sk.viewer.animation = sk.walking ? new skinview3d.WalkingAnimation() : null; renderStageInfo(); },
-  }, icon(sk.walking ? 'pause' : 'play', 14), 'Walking');
+  }, h('span', { class: 'toggle-track' }, h('span', { class: 'toggle-knob' })), 'Walking animation');
   sk.ui.controls.replaceChildren(
     h('div', { class: 'row sk-tools' }, armSeg(sk.model, (m) => { sk.model = m; renderStageInfo(); paintStage(); }), walk),
     sk.error ? h('div', { class: 'notice warn' }, icon('alert'), sk.error) : null,

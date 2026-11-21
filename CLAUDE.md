@@ -16,6 +16,8 @@ npm run deploy:dev   # fast build (no zip/installer) into the dev folder + deskt
 - `npm test` uses a simulated network, never the real APIs. When you change something that talks to Modrinth, CurseForge, Mojang, Fabric/Quilt/Forge/NeoForge or Microsoft, **also try it for real with `npm start`**. The test fixtures reflect API shapes as of late 2026; if a real response differs, fix the code *and* update the fixture.
 - To test a build, the maintainer unzips `dist/Junction-<version>-win-x64.zip` into a separate folder outside the repo. His instances live in `%APPDATA%\Junction\data`, not in that folder.
 
+- `npm run vendor` re-copies the skinview3d bundle and the licenses of the code inside it (skinview3d, three.js, skinview-utils) from node_modules into src/renderer/vendor/. Run it when the skinview3d version changes. Keep the LICENSE files there: MIT requires them to ship with the bundle (electron-builder's `src/**/*` already includes them).
+
 ## Layout
 
 ```

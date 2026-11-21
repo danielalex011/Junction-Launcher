@@ -144,4 +144,8 @@ test/            automated tests against a simulated Mojang/Modrinth/CurseForge/
 
 MIT. See [LICENSE](LICENSE).
 
+## Third-party
+
+The 3D skin preview uses [skinview3d](https://github.com/bs-community/skinview3d) (MIT), which includes [three.js](https://threejs.org/) (MIT) and skinview-utils (MIT). A copy ships with Junction in `src/renderer/vendor/`, with each project's license text next to it. Nothing is loaded from the web.
+
 Junction is not affiliated with Mojang, Microsoft, Modrinth or CurseForge. Minecraft is a trademark of Mojang Synergies AB.
