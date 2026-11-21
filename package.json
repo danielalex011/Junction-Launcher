@@ -1,12 +1,13 @@
 {
   "name": "junction-launcher",
-  "version": "0.1.10",
+  "version": "0.1.11",
   "description": "A Minecraft launcher that installs mods and modpacks from both Modrinth and CurseForge. No ads, no telemetry.",
   "main": "src/main/main.js",
   "scripts": {
     "start": "electron .",
     "test": "node --test test/*.test.js",
     "dist:win": "electron-builder --win",
+    "deploy:dev": "node tools/deploy-dev.js",
     "dist:linux": "electron-builder --linux AppImage",
     "dist:mac": "electron-builder --mac dmg"
   },
@@ -50,8 +51,7 @@
           ]
         }
       ],
-      "icon": "build/icon.png",
-      "signAndEditExecutable": false
+      "icon": "build/icon.png"
     },
     "nsis": {
       "oneClick": false,

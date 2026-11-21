@@ -9,6 +9,7 @@ npm install          # once
 npm start            # run the app from source
 npm test             # node:test suites in test/*.test.js — must pass before every commit
 npm run dist:win     # dist/Junction-<version>-win-x64.zip + NSIS installer (run on Windows)
+npm run deploy:dev   # fast build (no zip/installer) into the dev folder + desktop shortcut; see Conventions
 ```
 
 - `npm test` uses a simulated network, never the real APIs. When you change something that talks to Modrinth, CurseForge, Mojang, Fabric/Quilt/Forge/NeoForge or Microsoft, **also try it for real with `npm start`**. The test fixtures reflect API shapes as of late 2026; if a real response differs, fix the code *and* update the fixture.
@@ -32,7 +33,7 @@ src/main/main.js     Electron main: IPC handlers (`handle('area:action', fn)`), 
 src/main/preload.js  the ONLY bridge: window.junction.call(channel, ...args) / on(event, cb)
 src/renderer/        index.html, app.js (all UI), styles.css
 test/                *.test.js + helpers.js (makeCtx with fake fetch, fabricJar/forgeJar builders)
-tools/               mock-network.js + seed-demo.js for offline UI work; real-install.js runs prepareInstance against the real services (node tools/real-install.js [case...] [--dir folder])
+tools/               mock-network.js + seed-demo.js for offline UI work; real-install.js runs prepareInstance against the real services (node tools/real-install.js [case...] [--dir folder]); deploy-dev.js is `npm run deploy:dev`
 ```
 
 Data flow for a feature: core function → `handle('x:y', …)` in main.js → `call('x:y', …)` in app.js. Long jobs go through `ctx.tasks.run(title, (t) => …)` so they show in the sidebar task panel.
@@ -81,6 +82,8 @@ Data flow for a feature: core function → `handle('x:y', …)` in main.js → `
   Changed
   - ...
   ```
+- When a change set is finished and npm test passes, run npm run deploy:dev so the maintainer can open the new build from the desktop shortcut. If it says Junction is running, ask him to close it, then run it again.
+  - It builds `electron-builder --win --dir` once, replaces the contents of `JUNCTION_DEV_DIR` (default `DocumentsJunction-Launcher developer`) and refreshes the desktop shortcut. It never closes Junction and never starts a second build.
 - README.md is for players/visitors. Don't put personal setup notes in it; developer setup goes in its "Building it yourself" section.
 - Plain, friendly wording in the UI. Error messages say what to do next.
 
