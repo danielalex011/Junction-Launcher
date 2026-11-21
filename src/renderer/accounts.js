@@ -153,7 +153,12 @@ async function microsoftLogin() {
   } catch (e) {
     done = true;
     if (e.code !== 'CANCELLED') {
-      status.replaceChildren(h('div', { class: 'notice warn', style: { margin: 0 } }, icon('alert'), e.message));
+      // Sign-in failed: the code is no use any more, so swap it for the error and a way forward.
+      m.body.replaceChildren(
+        h('div', { class: 'notice warn', style: { margin: 0 } }, icon('alert'), e.message),
+        h('div', { class: 'row', style: { justifyContent: 'flex-end', marginTop: '14px' } },
+          h('button', { class: 'btn ghost', type: 'button', onclick: () => m.close() }, 'Close'),
+          h('button', { class: 'btn primary', type: 'button', onclick: () => { m.close(); microsoftLogin(); } }, icon('login'), 'Try again')));
     }
   }
 }
