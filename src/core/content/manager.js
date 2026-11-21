@@ -11,7 +11,7 @@ const { readModMetadata } = require('./metadata');
 const { matchKey, exists, hashFile, ensureDir, pool, readJson, writeJson } = require('../util');
 const { describeError, HttpError } = require('../http');
 
-const RANK = { release: 0, beta: 1, alpha: 2 };
+const { pickVersion } = require('../sources/choose');
 
 /** HTTP errors already name the site; other failures (no connection, ...) get the site put in front. */
 const siteError = (site, e) => (e instanceof HttpError ? describeError(e) : `${site}: ${describeError(e)}`);
@@ -60,7 +60,7 @@ class ContentManager {
   async bestVersion(source, projectId, inst, type) {
     const list = await this.compatibleVersions(source, projectId, inst, type);
     if (!list.length) return null;
-    return [...list].sort((a, b) => (RANK[a.releaseType] - RANK[b.releaseType]) || (new Date(b.date) - new Date(a.date)))[0];
+    return pickVersion(list, type);
   }
 
   async projectInfo(source, projectId) {

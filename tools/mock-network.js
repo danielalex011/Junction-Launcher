@@ -108,7 +108,34 @@ function slowResponse(k, signal) {
   return new Response(stream, { headers: { 'content-length': String(body.length) } });
 }
 
+// ---- "Twin Pack": the same modpack on both sites, to try the "Install from…" window (search "twin" under Modpacks).
+// Modrinth has the older 26.1.2 / Fabric build, CurseForge a newer 26.2 / NeoForge one that needs a manual download.
+// Sodium (a mod, on both sites) has a CurseForge file too, newer than Modrinth's, for 26.1.2 only.
+const twinMr = { id: 'TWIN', slug: 'twin-pack', title: 'Twin Pack', project_type: 'modpack', icon_url: null, description: 'The same pack on both sites.', downloads: 1200000, followers: 300 };
+const twinMrVersion = () => ({
+  id: 'twin1', project_id: 'TWIN', name: 'Twin Pack 1.0', version_number: '1.0', game_versions: ['26.1.2'], loaders: ['fabric'], version_type: 'release', date_published: daysAgo(12), downloads: 52000, dependencies: [],
+  files: [{ url: 'https://cdn.modrinth.com/data/TWIN/versions/twin1/twin.mrpack', filename: 'twin.mrpack', hashes: {}, size: 48 * 1024 * 1024, primary: true }],
+});
+const cfFile = (id, modId, name, file, days, gv, size, dl, url) => ({
+  id, modId, displayName: name, fileName: file, fileDate: daysAgo(days), downloadCount: dl, fileLength: size, releaseType: 1, downloadUrl: url,
+  gameVersions: gv, hashes: [], dependencies: [],
+});
+const twinCf = () => ({
+  ...cf(777001, 'twin-pack', 'Twin Pack', 'demo', 'The same pack on both sites.', 3400000, ['Adventure']), classId: 4471,
+  links: { websiteUrl: 'https://www.curseforge.com/minecraft/modpacks/twin-pack' }, latestFilesIndexes: [{ gameVersion: '26.2', fileId: 5, modLoader: 6 }],
+});
+
 module.exports = async (url, opts = {}) => {
+  if (url === 'https://api.modrinth.com/v2/project/TWIN') return json(twinMr);
+  if (url.startsWith('https://api.modrinth.com/v2/project/TWIN/version')) return json([twinMrVersion()]);
+  if (url === 'https://api.modrinth.com/v2/version/twin1') return json(twinMrVersion());
+  if (/api\.curseforge\.com\/v1\/mods\/777001\/files/.test(url)) return json({ pagination: { totalCount: 1 }, data: [cfFile(5, 777001, 'Twin Pack 1.1', 'twin-1.1.zip', 3, ['26.2', 'NeoForge'], 61 * 1024 * 1024, 91000, null)] });
+  if (/api\.curseforge\.com\/v1\/mods\/394468\/files/.test(url)) return json({ pagination: { totalCount: 1 }, data: [cfFile(9, 394468, 'sodium-fabric-0.9.7', 'sodium-fabric-0.9.7.jar', 4, ['26.1.2', 'Fabric'], jarFor('394468').length, 7000000, 'https://mediafilez.forgecdn.net/files/9/sodium.jar')] });
+  if (url === 'https://mediafilez.forgecdn.net/files/9/sodium.jar') return new Response(jarFor('394468'));
+  if (/api\.curseforge\.com\/v1\/mods\/777001\/description/.test(url)) return json({ data: '<p>The same pack on both sites.</p>' });
+  if (/api\.curseforge\.com\/v1\/mods\/777001$/.test(url)) return json({ data: twinCf() });
+  if (/api\.curseforge\.com\/v1\/mods\/394468\/description/.test(url)) return json({ data: '<p>Rendering engine.</p>' });
+  if (url.startsWith('https://api.curseforge.com/v1/mods/search') && url.includes('classId=4471')) return json({ pagination: { totalCount: 1 }, data: [twinCf()] });
   const slowFile = url.match(/^https:\/\/cdn\.modrinth\.com\/data\/SLOW\/files\/(\w)\.jar$/);
   if (slowFile && SLOW[slowFile[1]]) return slowResponse(slowFile[1], opts.signal);
   if (url === 'https://cdn.modrinth.com/data/SLOW/versions/slow1/slow.mrpack') return new Response(slowPack());
@@ -129,7 +156,8 @@ module.exports = async (url, opts = {}) => {
   if (url === 'https://api.modrinth.com/v2/project/FLAKY') return json(flakyProject);
   if (url.endsWith('/v2/version_files') && opts.method === 'POST') return json({}); // nothing in a pack is known by hash
   if (url.startsWith('https://api.modrinth.com/v2/search') && url.includes('project_type%3Amodpack')) {
-    return json({ total_hits: 2, hits: [
+    return json({ total_hits: 3, hits: [
+      { ...mr('TWIN', 'twin-pack', 'Twin Pack', 'demo', 'The same pack on both sites. Click Install to try the "Install from…" window.', 1200000, ['adventure']), project_type: 'modpack' },
       { ...mr('FLAKY', 'flaky-pack', 'Flaky Pack', 'demo', 'A pack whose download server has a bad day. Try the retry and repair buttons.', 4200, ['adventure']), project_type: 'modpack' },
       { ...mr('SLOW', 'slow-pack', 'Slow Pack', 'demo', 'Big files on a slow connection. Watch the Activity panel (pause, resume, cancel).', 900, ['adventure']), project_type: 'modpack' },
     ] });

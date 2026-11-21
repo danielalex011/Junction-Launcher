@@ -10,6 +10,7 @@ const { CurseForge } = require('../sources/curseforge');
 const { parseLoaderId } = require('../loaders');
 const { readModMetadata } = require('./metadata');
 const { pickFile } = require('./manager');
+const { pickVersion } = require('../sources/choose');
 const { describeError, isRetryable } = require('../http');
 const { currentTask } = require('../taskcontext');
 const { safeJoin, ensureDir, pool, exists, shortId, hashFile, hashBuffer } = require('../util');
@@ -359,7 +360,7 @@ class Modpacks {
       version = source === 'modrinth' ? await this.sources.modrinth.version(versionId) : (await this.sources.curseforge.files([versionId]))[0];
     } else {
       const list = await this.sources[source].versions(projectId, {});
-      version = list.find((v) => v.releaseType === 'release') || list[0];
+      version = pickVersion(list, 'modpack');
     }
     if (!version) throw new Error('No downloadable version of this modpack was found');
     const file = pickFile(version);

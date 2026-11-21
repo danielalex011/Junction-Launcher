@@ -12,7 +12,7 @@ function defaults() {
     javaPath: '',
     msClientId: '',
     concurrency: 16,
-    preferredSource: 'modrinth',
+    preferredSource: 'ask', // 'ask' | 'modrinth' | 'curseforge': where Install goes when a project is on both
     sources: { modrinth: true, curseforge: true },
     closeOnLaunch: false,
     showSnapshots: false,

@@ -140,18 +140,25 @@ function resultCard(hit, inst, bctx = null) {
 }
 
 async function quickInstall(hit, inst, versionId, sourceOverride) {
-  const source = sourceOverride || hit.source;
-  const projectId = sourceOverride ? (hit.alsoOn || []).find((a) => a.source === sourceOverride)?.id : hit.id;
   try {
+    let target = inst;
+    if (hit.type !== 'modpack') {
+      if (!target) target = await pickInstance(hit);
+      if (!target) return false;
+    }
+    let source = sourceOverride || hit.source;
+    let projectId = sourceOverride ? (hit.alsoOn || []).find((a) => a.source === sourceOverride)?.id : hit.id;
+    if (!sourceOverride && !versionId) {
+      const choice = await chooseSource(hit, target);
+      if (!choice) return false;
+      ({ source, projectId } = choice);
+    }
     if (hit.type === 'modpack') {
       const r = await call('pack:installFromSource', { source, projectId, versionId, title: hit.title });
       await handleInstallResult(r);
       go('instance', { id: r.instance.id });
       return true;
     }
-    let target = inst;
-    if (!target) target = await pickInstance(hit);
-    if (!target) return false;
     const r = await call('content:install', target.id, { source, projectId, type: hit.type, versionId, title: hit.title });
     await handleInstallResult(r, target.id);
     return true;
@@ -162,6 +169,75 @@ async function quickInstall(hit, inst, versionId, sourceOverride) {
     } else toast(e.message, 'error');
     return false;
   }
+}
+
+/** Which site to install a project from: the saved preference, or the "Install from…" window when it's on both and the setting is Ask. */
+async function chooseSource(hit, target) {
+  const alts = [{ source: hit.source, id: hit.id, url: hit.url }, ...(hit.alsoOn || [])];
+  if (alts.length < 2) return { source: hit.source, projectId: hit.id };
+  const s = state.settings || (state.settings = await call('settings:get'));
+  const pref = s.preferredSource || 'ask';
+  if (pref !== 'ask') {
+    const a = alts.find((x) => x.source === pref) || alts[0];
+    return { source: a.source, projectId: a.id };
+  }
+  return installFromDialog(hit, alts, target);
+}
+
+function installFromDialog(hit, alts, target) {
+  return new Promise((resolve) => {
+    let answered = false;
+    const isPack = hit.type === 'modpack';
+    const remember = h('input', { type: 'checkbox' });
+    const body = h('div', { class: 'src-compare' }, loading('Checking Modrinth and CurseForge…'));
+    const m = modal({ title: `Install ${hit.title} from…`, body, wide: true, onClose: () => { if (!answered) resolve(null); } });
+    const pick = async (o) => {
+      answered = true;
+      if (remember.checked) {
+        try {
+          state.settings = await call('settings:set', { preferredSource: o.source });
+          toast(`Saved: Install will use ${SRC[o.source]} from now on. You can change this in Settings → Sources.`);
+        } catch (e) { toast(e.message, 'error'); }
+      }
+      m.close();
+      resolve({ source: o.source, projectId: o.projectId });
+    };
+    const card = (o) => {
+      const v = o.version;
+      const rows = [];
+      if (v) {
+        rows.push(h('div', { class: 'sc-ver' }, v.name || v.versionNumber));
+        rows.push(h('div', { class: 'sc-meta' },
+          h('span', { class: `badge plain ${v.releaseType === 'release' ? 'good' : 'warn'}` }, v.releaseType),
+          h('span', null, v.date ? `${new Date(v.date).toLocaleDateString()} (${ago(v.date)})` : ''),
+          v.downloads != null ? h('span', null, icon('download', 12), ` ${fmtNum(v.downloads)}`) : null,
+          v.size ? h('span', null, fmtBytes(v.size)) : null));
+        if (isPack) rows.push(h('div', { class: 'sc-pack' }, `Minecraft ${v.gameVersions.join(', ') || 'unknown'} · ${v.loaders.map((l) => LOADER[l] || l).join(', ') || 'loader not listed'}`));
+        if (isPack && o.source === 'curseforge') rows.push(h('div', { class: 'hint' }, 'CurseForge packs can include mods that need a manual download. Junction will guide you through those.'));
+        if (v.manualDownload) rows.push(h('div', { class: 'notice warn', style: { margin: 0 } }, icon('alert'), 'The author only allows downloads from the CurseForge website, so you will be sent there.'));
+      } else {
+        rows.push(h('div', { class: 'sc-why' }, o.reason || 'Nothing to install.'));
+      }
+      return h('div', { class: `src-card ${v ? '' : 'off'}` },
+        h('div', { class: 'row', style: { gap: '8px' } }, sourceBadge(o.source, o.url), o.newer ? h('span', { class: 'badge good plain' }, 'Newer') : null),
+        ...rows,
+        v ? h('button', { class: 'btn primary', type: 'button', onclick: () => pick(o) }, icon('download'), `Install from ${SRC[o.source]}`) : null);
+    };
+    call('browse:compareSources', { alts, type: hit.type, instanceId: target?.id }).then((r) => {
+      const usable = r.options.filter((o) => o.version);
+      const where = target && !isPack ? ` for Minecraft ${target.mcVersion}` : '';
+      const intro = !usable.length
+        ? h('div', { class: 'notice warn' }, icon('alert'), `Neither Modrinth nor CurseForge has a version of ${hit.title}${where} that Junction can install.`)
+        : r.only
+          ? h('div', { class: 'notice info' }, icon('info'), `Only ${SRC[r.only]} has a version${where} that fits, so that's the one to install.`)
+          : h('p', { class: 'muted', style: { margin: 0 } }, isPack ? 'On both sites. This is the newest version of the pack on each.' : `On both sites. This is the version Junction would install${target ? ` into ${target.name}` : ''} from each.`);
+      body.replaceChildren(intro,
+        h('div', { class: 'src-cols' }, r.options.map(card)),
+        r.notes.length ? h('ul', { class: 'sc-notes' }, r.notes.map((n) => h('li', null, n))) : null,
+        usable.length ? h('label', { class: 'check' }, remember, 'Remember my choice (change it later in Settings → Sources)') : null,
+        h('div', { class: 'row', style: { justifyContent: 'flex-end' } }, h('button', { class: 'btn ghost', type: 'button', onclick: () => m.close() }, 'Cancel')));
+    }).catch((e) => body.replaceChildren(h('div', { class: 'notice warn' }, icon('alert'), e.message)));
+  });
 }
 
 async function pickInstance(hit) {
@@ -211,6 +287,15 @@ async function projectDialog(hit, { instance = null, tab = 'about', onInstalled 
       alts.length > 1 ? h('div', { class: 'seg' }, alts.map((a) => h('button', { type: 'button', class: a.source === current.source ? 'on' : '', onclick: () => { current = a; show(); } }, SRC[a.source]))) : sourceBadge(current.source, project.url),
       h('span', { class: 'muted small' }, `${fmtNum(project.downloads)} downloads${project.author ? ` · by ${project.author}` : ''}${project.license ? ` · ${project.license}` : ''}`),
       h('div', { class: 'grow' }),
+      alts.length > 1 ? h('button', {
+        class: 'btn sm primary', type: 'button', onclick: async (e) => {
+          e.currentTarget.disabled = true;
+          const ok = await quickInstall({ ...hit, type }, instance);
+          if (type === 'modpack') { if (ok) m.close(); return; }
+          if (ok && onInstalled) await onInstalled();
+          e.currentTarget.disabled = false;
+        },
+      }, icon('download', 14), 'Install') : null,
       project.links?.source ? h('button', { class: 'btn sm ghost', type: 'button', onclick: () => call('shell:open', project.links.source) }, 'Source') : null,
       project.links?.issues ? h('button', { class: 'btn sm ghost', type: 'button', onclick: () => call('shell:open', project.links.issues) }, 'Issues') : null,
       h('button', { class: 'btn sm', type: 'button', onclick: () => call('shell:open', project.url) }, icon('external', 14), `Open on ${SRC[current.source]}`));

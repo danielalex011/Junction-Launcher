@@ -318,3 +318,14 @@ kbd { background: var(--panel-3); border-radius: 4px; padding: 1px 6px; font-siz
 .sum-head.warn { color: var(--warn); }
 .sum-head.muted { color: var(--muted); }
 .sum-sec ul { margin: 0; padding-left: 20px; line-height: 1.55; font-size: 13px; }
+
+/* Install from… window */
+.src-compare { display: flex; flex-direction: column; gap: 14px; }
+.src-cols { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.src-card { display: flex; flex-direction: column; gap: 10px; align-items: flex-start; padding: 14px; background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius); }
+.src-card.off { opacity: .5; }
+.src-card .sc-ver { font-weight: 700; word-break: break-word; }
+.src-card .sc-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; color: var(--muted); font-size: 12px; }
+.src-card .sc-pack, .src-card .sc-why { color: var(--muted); font-size: 13px; }
+.src-card .btn { margin-top: auto; }
+.sc-notes { margin: 0; padding-left: 18px; color: var(--muted); font-size: 13px; line-height: 1.6; }

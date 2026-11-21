@@ -78,7 +78,8 @@ async function searchAll(ctx, sources, params) {
       warnings.push(`${s === 'modrinth' ? 'Modrinth' : 'CurseForge'}: ${r.reason?.message || r.reason}`);
     }
   });
-  const preferred = ctx.settings.get('preferredSource') || 'modrinth';
+  // 'ask' still needs a primary entry to show first: Modrinth.
+  const preferred = ctx.settings.get('preferredSource') === 'curseforge' ? 'curseforge' : 'modrinth';
   const hits = interleaveAndMerge(lists, preferred);
   return { hits, totals, warnings, searched: wanted };
 }

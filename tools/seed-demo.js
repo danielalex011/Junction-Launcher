@@ -12,6 +12,7 @@ const { fabricJar } = require('../test/helpers');
   const dir = path.resolve(process.argv[2] || 'demo-data');
   fs.rmSync(dir, { recursive: true, force: true });
   const ctx = await createContext(dir);
+  await ctx.settings.update({ cfApiKey: 'demo-key' }); // so the mock network's CurseForge results show up
   const instances = new Instances(ctx);
   const a = await instances.create({ name: 'Fabric 26.1.2', mcVersion: '26.1.2', loader: { type: 'fabric', version: '0.17.3' } });
   await instances.update(a.id, { lastPlayed: Date.now() - 5 * 3600e3, playtimeMs: 41 * 3600e3 });

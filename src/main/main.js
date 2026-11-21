@@ -9,6 +9,7 @@ const { createContext } = require('../core/context');
 const { Accounts } = require('../core/auth/accounts');
 const { Instances } = require('../core/instances');
 const { createSources, searchAll, compatibleLoaders } = require('../core/sources');
+const { compareSources } = require('../core/sources/choose');
 const { ContentManager } = require('../core/content/manager');
 const { Modpacks } = require('../core/content/modpacks');
 const { BlockedWatcher } = require('../core/content/blocked');
@@ -261,6 +262,15 @@ function registerIpc() {
     const loaders = filters.loader ? (compatibleLoaders(filters.loader, filters.gameVersion).length ? compatibleLoaders(filters.loader, filters.gameVersion) : [filters.loader]) : undefined;
     const list = await sources[source].versions(id, { gameVersion: filters.gameVersion || undefined, loaders: filters.type === 'mod' ? loaders : undefined });
     return list.slice(0, 200).map((v) => ({ ...v, changelog: undefined }));
+  });
+
+  // Which version each site would install, for the "Install from…" window.
+  handle('browse:compareSources', async ({ alts, type, instanceId }) => {
+    const inst = instanceId && type !== 'modpack' ? await instances.get(instanceId) : null;
+    return compareSources({
+      alts, type, mcVersion: inst?.mcVersion,
+      loadVersions: (source, id) => (inst ? content.compatibleVersions(source, id, inst, type) : sources[source].versions(id, {})),
+    });
   });
 
   // --- modpacks
