@@ -32,7 +32,7 @@ src/main/main.js     Electron main: IPC handlers (`handle('area:action', fn)`), 
 src/main/preload.js  the ONLY bridge: window.junction.call(channel, ...args) / on(event, cb)
 src/renderer/        index.html, app.js (all UI), styles.css
 test/                *.test.js + helpers.js (makeCtx with fake fetch, fabricJar/forgeJar builders)
-tools/               mock-network.js + seed-demo.js for offline UI work
+tools/               mock-network.js + seed-demo.js for offline UI work; real-install.js runs prepareInstance against the real services (node tools/real-install.js [case...] [--dir folder])
 ```
 
 Data flow for a feature: core function → `handle('x:y', …)` in main.js → `call('x:y', …)` in app.js. Long jobs go through `ctx.tasks.run(title, (t) => …)` so they show in the sidebar task panel.

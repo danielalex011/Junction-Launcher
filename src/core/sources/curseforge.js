@@ -104,7 +104,8 @@ class CurseForge {
     if (query) q.push(`searchFilter=${enc(query)}`);
     if (gameVersion) q.push(`gameVersion=${enc(gameVersion)}`);
     if (loader && LOADER_TYPE[loader] && (type === 'mod' || type === 'modpack')) q.push(`modLoaderType=${LOADER_TYPE[loader]}`);
-    const sortField = { downloads: 6, newest: 11, updated: 3, follows: 2 }[sort] || (query ? null : 2);
+    // Without a sortField CurseForge returns junk for text queries; 1 (Featured) gives the best relevance, 2 (Popularity) suits browsing.
+    const sortField = { downloads: 6, newest: 11, updated: 3, follows: 2 }[sort] || (query ? 1 : 2);
     if (sortField) q.push(`sortField=${sortField}`, 'sortOrder=desc');
     const r = await this.get(`/v1/mods/search?${q.join('&')}`);
     return { hits: r.data.map(normalizeMod), total: Math.min(r.pagination?.totalCount || 0, 10000) };

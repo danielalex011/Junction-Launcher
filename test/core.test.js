@@ -258,3 +258,13 @@ test('built-in sign-in ID and CurseForge key are used unless the user sets their
   assert.equal(ctx.settings.get('msClientId'), 'built-in-id');
   assert.equal(ctx.settings.get('cfApiKey'), 'built-in-key');
 });
+
+test('CurseForge text searches sort by Featured, browsing by Popularity', async () => {
+  const { CurseForge } = require('../src/core/sources/curseforge');
+  const urls = [];
+  const cf = new CurseForge({ http: { json: async (url) => { urls.push(url); return { data: [], pagination: { totalCount: 0 } }; } }, settings: { get: () => 'key' } });
+  await cf.search({ query: 'jei' });
+  await cf.search({ query: '' });
+  assert.match(urls[0], /sortField=1&sortOrder=desc/);
+  assert.match(urls[1], /sortField=2&sortOrder=desc/);
+});

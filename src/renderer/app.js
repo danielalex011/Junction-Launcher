@@ -1439,7 +1439,7 @@ function blockedDialog(session, instId) {
     if (state.view === 'instance' && state.params.id === instId) go('instance', state.params);
   });
   const m = modal({
-    title: `${status.length} file${status.length > 1 ? 's' : ''} need a manual download`,
+    title: `${status.length} file${status.length > 1 ? 's' : ''} ${status.length > 1 ? 'need' : 'needs'} a manual download`,
     body: [
       h('p', { style: { margin: 0, lineHeight: 1.5 } }, 'The authors of these files only allow downloads from the CurseForge website. Click each “Download page” and download it in your browser — Junction watches your Downloads folder and moves each file into place automatically.'),
       h('div', { class: 'hint' }, `Watching: ${session.downloadsDir}`),
