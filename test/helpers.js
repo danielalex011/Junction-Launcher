@@ -29,8 +29,8 @@ function fakeFetch(routes, log = []) {
       if (!ok) continue;
       const r = await handler(url, body, opts.headers || {});
       const status = r.status || 200;
-      if (r.json !== undefined) return new Response(JSON.stringify(r.json), { status, headers: { 'content-type': 'application/json' } });
-      return new Response(r.body ?? '', { status });
+      if (r.json !== undefined) return new Response(JSON.stringify(r.json), { status, headers: { 'content-type': 'application/json', ...(r.headers || {}) } });
+      return new Response(r.body ?? '', { status, headers: r.headers || {} });
     }
     return new Response(`no route for ${method} ${url}`, { status: 404 });
   };

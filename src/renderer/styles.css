@@ -123,6 +123,7 @@ input[type=checkbox] { accent-color: var(--accent); width: 16px; height: 16px; }
 .badge.src-modrinth { color: var(--mr); background: rgba(27, 217, 106, .1); }
 .badge.src-curseforge { color: var(--cf); background: rgba(241, 100, 54, .1); }
 .badge.src-local, .badge.src-file { color: var(--muted); }
+.badge.src-pack { color: #c9a0ff; background: rgba(201, 160, 255, .12); }
 .badge.plain::before { display: none; }
 .badge.warn { color: var(--warn); background: rgba(242, 184, 75, .12); }
 .badge.bad { color: var(--bad); background: rgba(242, 103, 106, .12); }

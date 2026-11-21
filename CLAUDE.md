@@ -42,7 +42,7 @@ Data flow for a feature: core function → `handle('x:y', …)` in main.js → `
 
 - **Project** (search hit / details): `{ source: 'modrinth'|'curseforge', id, slug, title, summary, icon, url, type: 'mod'|'modpack'|'resourcepack'|'shader', ... }`. Merged hits add `alsoOn: [{source, id, slug, url}]`.
 - **Version**: `{ source, id, projectId, versionNumber, gameVersions, loaders, releaseType: 'release'|'beta'|'alpha', date, files: [{url, filename, sha1, sha512?, size, primary}], deps: [{source, projectId, versionId?, type}] }`. CurseForge file IDs are numbers, Modrinth IDs are strings, so compare with `String(a) === String(b)`.
-- **content.json** (per instance): `files["mods/x.jar"] = { source, projectId, versionId, title, versionName, icon, projectUrl, fileUrl, sha1, meta: {modId, name, version, loader, environment?}, sides?: {client, server} (Modrinth client_side/server_side), pinned?, fromPack? }`. `listContent()` adds `clientOnly` (jar `environment` = client, or Modrinth server_side = unsupported).
+- **content.json** (per instance): `files["mods/x.jar"] = { source ('modrinth'|'curseforge'|'local'|'pack' = shipped inside a modpack's overrides), projectId, versionId, title, versionName, icon, projectUrl, fileUrl, sha1, meta: {modId, name, version, loader, environment?}, sides?: {client, server} (Modrinth client_side/server_side), pinned?, fromPack? }`. `failed["mods/y.jar"] = { path, urls, hashes, size, error, source, ... }` is the list of pack files that couldn't be downloaded (retry / repair read it). `listContent()` adds `clientOnly` (jar `environment` = client, or Modrinth server_side = unsupported).
 
 ## Rules — don't break these
 
@@ -58,6 +58,7 @@ Data flow for a feature: core function → `handle('x:y', …)` in main.js → `
 **Respect the platforms**
 - If a CurseForge file has `downloadUrl: null`, the author disabled third-party downloads. Use the blocked-download flow (open the page, watch the Downloads folder). Never build `edge.forgecdn.net` URLs to get around it.
 - Modrinth needs a descriptive User-Agent (already set in http.js).
+- Be gentle with the CDNs: `http.download` retries 429/5xx and timeouts with backoff (honours Retry-After) and holds at most 6 downloads per CDN host. Never show a response body to users: errors reach the UI as `describeError()` sentences.
 
 **Other launchers' data is read-only**
 - The importer copies instance folders, never moves or edits them.

@@ -19,6 +19,7 @@ const { listLoaderVersions, pickDefault, LOADER_NAMES } = require('../core/loade
 const { prepareInstance, launch } = require('../core/minecraft/launch');
 const { shortId, sniffImage } = require('../core/util');
 const { loadBuildConfig } = require('../core/build-config');
+const { HttpError, describeError } = require('../core/http');
 
 const VERSION = require('../../package.json').version;
 let win = null;
@@ -65,7 +66,8 @@ function handle(channel, fn) {
       return { ok: true, data: await fn(...args) };
     } catch (err) {
       console.error(`[${channel}]`, err);
-      return { ok: false, error: String(err?.message || err), code: err?.code, manualUrl: err?.manualUrl };
+      // Download-server errors can carry whole HTML pages: show a plain sentence instead.
+      return { ok: false, error: err instanceof HttpError ? describeError(err) : String(err?.message || err), code: err?.code, manualUrl: err?.manualUrl };
     }
   });
 }
@@ -270,6 +272,18 @@ function registerIpc() {
     }
     const r = await ctx.tasks.run(`Importing ${path.basename(file)}`, (t) => modpacks.installFile(file, { report: t.update }));
     return { ...r, blockedSession: startBlockedSession(r.instance.id, r.blocked) };
+  });
+  // Files a pack install couldn't download (kept in content.json so they can be retried), and repairing a pack.
+  handle('content:failed', async (id) => modpacks.failedDownloads(id));
+  handle('content:retryFailed', async (id) => {
+    if (running.has(id)) throw new Error('Close the game before retrying downloads for it.');
+    return ctx.tasks.run('Retrying failed downloads', (t) => modpacks.retryFailed(id, { report: t.update }), { instanceId: id });
+  });
+  handle('pack:repair', async (id) => {
+    if (running.has(id)) throw new Error('Close the game before repairing its modpack.');
+    const inst = await instances.get(id);
+    const r = await ctx.tasks.run(`Repairing ${inst.name}`, (t) => modpacks.repair(id, { report: t.update }), { instanceId: id });
+    return { ...r, blockedSession: startBlockedSession(id, r.blocked) };
   });
   handle('pack:checkUpdate', async (id) => modpacks.checkPackUpdate(id));
   handle('pack:update', async (id, versionId) => {

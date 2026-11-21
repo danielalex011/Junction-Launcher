@@ -9,8 +9,12 @@ const { CurseForge, LOADER_TYPE } = require('../sources/curseforge');
 const { curseFingerprintFile } = require('../sources/fingerprint');
 const { readModMetadata } = require('./metadata');
 const { matchKey, exists, hashFile, ensureDir, pool, readJson, writeJson } = require('../util');
+const { describeError, HttpError } = require('../http');
 
 const RANK = { release: 0, beta: 1, alpha: 2 };
+
+/** HTTP errors already name the site; other failures (no connection, ...) get the site put in front. */
+const siteError = (site, e) => (e instanceof HttpError ? describeError(e) : `${site}: ${describeError(e)}`);
 
 function pickFile(version) {
   return version.files.find((f) => f.primary) || version.files[0];
@@ -315,7 +319,7 @@ class ContentManager {
         if (summary.byProject.has(`${e.source}:${e.projectId}`) || summary.titles.has(matchKey(title))) { out.skipped.push({ title, reason: 'already installed' }); continue; }
         if (e.meta?.modId && summary.modIds.has(e.meta.modId)) { out.skipped.push({ title, reason: `already provided by ${path.basename(summary.modIds.get(e.meta.modId))}` }); continue; }
         let version;
-        try { version = await this.bestVersion(e.source, e.projectId, target, type); } catch (err) { out.unavailable.push({ title, reason: `couldn't check ${e.source === 'modrinth' ? 'Modrinth' : 'CurseForge'} (${String(err.message).split(' for http')[0]})` }); continue; }
+        try { version = await this.bestVersion(e.source, e.projectId, target, type); } catch (err) { out.unavailable.push({ title, reason: `couldn't check: ${describeError(err)}` }); continue; }
         if (!version) { out.unavailable.push({ title, reason: `no version for Minecraft ${target.mcVersion}${type === 'mod' ? forMods : ''}` }); continue; }
         try {
           const r = await this.installVersion(targetId, version, { type });
@@ -449,7 +453,7 @@ class ContentManager {
             updates.push({ file: i.file, title: i.title, icon: i.icon, type: t, source: 'modrinth', current: i.versionName, currentVersionId: i.versionId, projectId: i.projectId, next: v.versionNumber, version: v });
           }
         }
-      } catch (e) { updates.push({ error: `Modrinth: ${e.message}` }); }
+      } catch (e) { updates.push({ error: siteError('Modrinth', e) }); }
     }
 
     // CurseForge: latestFilesIndexes gives the newest file per game version + loader.
@@ -471,7 +475,7 @@ class ContentManager {
           const v = files.get(w.fileId);
           if (v) updates.push({ file: w.item.file, title: w.item.title, icon: w.item.icon, type: w.item.type, source: 'curseforge', current: w.item.versionName, currentVersionId: w.item.versionId, projectId: w.item.projectId, next: v.versionNumber, version: v, project: w.project });
         }
-      } catch (e) { updates.push({ error: `CurseForge: ${e.message}` }); }
+      } catch (e) { updates.push({ error: siteError('CurseForge', e) }); }
     }
     return updates;
   }
