@@ -2,6 +2,8 @@
 // The account chip in the sidebar and the menu it opens. Plain script: shares one global scope with the other src/renderer files (load order is in index.html).
 
 // ---------------------------------------------------------------- account chip
+let accountMenu = null; // declared first: nothing below may run before it exists
+
 async function renderAccountChip() {
   const chip = $('#account-chip');
   chip.setAttribute('aria-haspopup', 'menu');
@@ -20,7 +22,6 @@ async function renderAccountChip() {
 
 on('accounts:changed', () => renderAccountChip());
 
-let accountMenu = null;
 
 /** Closes the account menu. Returns true if one was open. */
 function closeAccountMenu({ refocus = false } = {}) {

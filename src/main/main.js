@@ -13,6 +13,7 @@ const { Home } = require('../core/home');
 const { composeHead } = require('../core/skin');
 const { Skins } = require('../core/skins');
 const { compareSources } = require('../core/sources/choose');
+const { ErrorLog } = require('../core/errorlog');
 const { ContentManager } = require('../core/content/manager');
 const { Modpacks } = require('../core/content/modpacks');
 const { PackLink } = require('../core/content/packlink');
@@ -28,7 +29,7 @@ const { HttpError, describeError } = require('../core/http');
 
 const VERSION = require('../../package.json').version;
 let win = null;
-let ctx; let accounts; let skins; let instances; let sources; let content; let modpacks; let home; let packlink;
+let ctx; let accounts; let skins; let instances; let sources; let content; let modpacks; let home; let packlink; let errorLog;
 const running = new Map();
 const blockedSessions = new Map();
 let pendingOpenFiles = [];
@@ -577,6 +578,14 @@ function createWindow() {
   win.webContents.on('will-navigate', (e, url) => {
     if (!url.startsWith('file://')) { e.preventDefault(); if (isHttpUrl(url)) shell.openExternal(url); }
   });
+  // Errors and unhandled promise rejections from the page end up in <data>/logs/window-errors.log.
+  win.webContents.on('console-message', (e, lvl, msg, line, src) => {
+    const d = e && typeof e === 'object' && 'message' in e ? e : { level: lvl, message: msg, lineNumber: line, sourceId: src };
+    if (d.level !== 'error' && d.level !== 3) return;
+    errorLog?.write('window', d.message, `${path.basename(String(d.sourceId || ''))}:${d.lineNumber || 0}`);
+  });
+  win.webContents.on('render-process-gone', (_e, det) => errorLog?.write('crash', `The window process ended: ${det.reason}`));
+  win.webContents.on('did-fail-load', (_e, code, desc, url) => errorLog?.write('load', `Could not load ${url}: ${desc} (${code})`));
   win.loadFile(path.join(__dirname, '..', 'renderer', 'index.html'));
   if (process.env.JUNCTION_SCREENSHOT) {
     // Used by the automated UI smoke test.
@@ -617,6 +626,7 @@ app.whenReady().then(async () => {
   // Dev hook for automated UI screenshots: swap in a fake network.
   const fetchImpl = process.env.JUNCTION_FETCH_MOCK ? require(process.env.JUNCTION_FETCH_MOCK) : undefined;
   ctx = await createContext(dataRoot(), { crypto: osCrypto, fetchImpl, builtins: loadBuildConfig({ appRoot: app.getAppPath() }) });
+  errorLog = new ErrorLog(ctx.root);
   accounts = await new Accounts(ctx).load();
   skins = new Skins(ctx, accounts);
   instances = new Instances(ctx);

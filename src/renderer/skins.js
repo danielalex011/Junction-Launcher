@@ -183,7 +183,7 @@ async function renderSkins(_p, token) {
   renderStageInfo();
   renderCapes();
   renderWardrobe();
-  renderHistory();
+  renderSkinHistory();
   if (sk.viewer) {
     fitViewer();
     sk.resizer = new ResizeObserver(fitViewer);
@@ -229,7 +229,7 @@ function refreshAll() {
   renderStageInfo();
   renderCapes();
   renderWardrobe();
-  renderHistory();
+  renderSkinHistory();
 }
 
 // ---------------------------------------------------------------- preview text and buttons
@@ -301,7 +301,7 @@ function chooseCape(cape) {
   });
 }
 
-function select(kind, entry) {
+function selectSkin(kind, entry) {
   sk.sel = { ...entry, kind };
   sk.model = entry.model;
   refreshAll();
@@ -311,7 +311,7 @@ function select(kind, entry) {
 async function reloadSkins() {
   sk.list = await call('skins:list');
   if (sk.sel && !(sk.sel.kind === 'history' ? sk.list.history : sk.list.skins).some((s) => s.id === sk.sel.id)) sk.sel = null;
-  if (sk.ui) { renderWardrobe(); renderHistory(); renderStageInfo(); }
+  if (sk.ui) { renderWardrobe(); renderSkinHistory(); renderStageInfo(); }
 }
 
 // ---------------------------------------------------------------- capes
@@ -353,7 +353,7 @@ function skinCard(entry, kind) {
   if (!canChange()) items[0] = { label: 'Apply (needs a Microsoft account)', icon: 'lock', onClick: () => toast('Switch to a Microsoft account to change your skin.', 'warn') };
   return h('div', {
     class: `sk-card${selected ? ' sel' : ''}`, tabindex: 0, role: 'button', 'aria-pressed': selected ? 'true' : 'false', title: 'Preview this skin',
-    onclick: () => select(kind, entry), onkeydown: (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); select(kind, entry); } },
+    onclick: () => selectSkin(kind, entry), onkeydown: (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); selectSkin(kind, entry); } },
   },
   h('div', { class: 'sk-thumb' }, skinFront(entry.dataUrl || placeholderSkin(), entry.model, 5)),
   h('div', { class: 'sk-name ellipsis', title: entry.name }, entry.name),
@@ -375,7 +375,7 @@ function renderWardrobe() {
       : h('div', { class: 'sk-empty' }, 'Nothing saved yet. Add a skin file (64×64 PNG) or import the skin of any player by name.'));
 }
 
-function renderHistory() {
+function renderSkinHistory() {
   const hist = sk.list.history;
   sk.ui.history.replaceChildren(
     h('div', { class: 'row wrap sk-head' },
@@ -401,7 +401,7 @@ async function skinsAddFromPath(file) {
     const saved = await call('skins:add', { path: file, name: name.value, model });
     await reloadSkins();
     toast(`${saved.name} saved to your wardrobe`, 'good');
-    select('wardrobe', saved);
+    selectSkin('wardrobe', saved);
   };
   const m = modal({
     title: 'Add skin',
@@ -430,7 +430,7 @@ function importPlayerDialog() {
         const saved = await call('skins:importPlayer', name.value);
         await reloadSkins();
         toast(`Saved ${saved.name}'s skin`, 'good');
-        select('wardrobe', saved);
+        selectSkin('wardrobe', saved);
       } },
     ],
   });

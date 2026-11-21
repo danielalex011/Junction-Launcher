@@ -42,7 +42,7 @@ src/renderer/        index.html, styles.css, and plain scripts sharing one globa
                      accounts · library · import · instance (page, logs, settings tabs) · content (list, selection bar, send) · updates · browse · settings
                      app.js (state, navigation, startup; loads last and runs init())
 test/                *.test.js + helpers.js (makeCtx with fake fetch, fabricJar/forgeJar builders)
-tools/               mock-network.js + seed-demo.js for offline UI work; real-install.js runs prepareInstance against the real services (node tools/real-install.js [case...] [--dir folder]); deploy-dev.js is `npm run deploy:dev`
+tools/               ui-check.js (`node tools/ui-check.js <data folder>`: runs the real app on a copy, checks the account menus on every page, prints window errors; window errors are also logged to <data>/logs/window-errors.log by src/core/errorlog.js); mock-network.js + seed-demo.js for offline UI work; real-install.js runs prepareInstance against the real services (node tools/real-install.js [case...] [--dir folder]); deploy-dev.js is `npm run deploy:dev`
 ```
 
 Data flow for a feature: core function → `handle('x:y', …)` in main.js → `call('x:y', …)` in the matching src/renderer file. Long jobs go through `ctx.tasks.run(title, (t) => …, { kind, icon, heavy, createsInstance })` so they show in the Activity panel (`t.onCancel(fn)` registers cleanup for Cancel; `heavy` installs run one at a time).
@@ -62,6 +62,7 @@ Data flow for a feature: core function → `handle('x:y', …)` in main.js → `
 - Never log the Minecraft access token: `launch.js` redacts it, so keep it that way.
 - Never commit `build-config.json`.
 - UI: put API text in the DOM via the `h()` helper (textContent), never `innerHTML`. Project descriptions only render inside the sandboxed iframe (no scripts).
+- New `on('event')` names in the renderer must also be added to `EVENTS` in preload.js, and renderer scripts share one global scope, so top-level names must be unique (test/renderer.test.js checks both).
 - The renderer has no Node access; add new capabilities as IPC handlers.
 
 **Respect the platforms**
