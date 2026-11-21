@@ -7,7 +7,7 @@ const fs = require('fs');
 const fsp = fs.promises;
 const path = require('path');
 const { exists, readJson, writeJson, ensureDir, slugify, shortId, copyDir, hashFile, safeJoin, imageTypeOfFile } = require('./util');
-const { readModMetadata } = require('./content/metadata');
+const { readModMetadata, isClientOnly } = require('./content/metadata');
 
 const TYPE_DIR = { mod: 'mods', resourcepack: 'resourcepacks', shader: 'shaderpacks' };
 const ICON_EXT = ['.png', '.jpg', '.jpeg', '.webp', '.gif'];
@@ -184,6 +184,8 @@ class Instances {
         loader: entry.meta?.loader || null,
         pinned: Boolean(entry.pinned),
         fromPack: Boolean(entry.fromPack),
+        sides: entry.sides || null,
+        clientOnly: type === 'mod' && isClientOnly({ environment: entry.meta?.environment, sides: entry.sides }),
       });
     }
     // Drop index entries whose files were deleted outside the launcher.

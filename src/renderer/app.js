@@ -33,6 +33,7 @@ const ICONS = {
   terminal: '<polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/>',
   login: '<path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"/><polyline points="10 17 15 12 10 7"/><line x1="15" y1="12" x2="3" y2="12"/>',
   arrowLeft: '<line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/>',
+  chevronDown: '<polyline points="6 9 12 15 18 9"/>',
   file: '<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/>',
 };
 
@@ -756,20 +757,186 @@ async function packUpdateFlow(inst) {
 }
 
 // ----- content tab
+let contentKeyHandler = null;
+
+function typeNoun(type, n) {
+  const one = { mod: 'mod', resourcepack: 'resource pack', shader: 'shader' }[type] || 'file';
+  return n === 1 ? one : `${one}s`;
+}
+
 async function renderContentTab(inst, type, root, token) {
   root.replaceChildren(loading());
   let items = await call('content:list', inst.id, type);
   if (stale(token)) return;
   let filter = '';
   let updates = new Map();
+  let checked = false; // has "check for updates" run on this tab?
+  const selected = new Set(); // file paths; stays put when a filter hides some of them
+  let anchor = null; // last clicked row, for Shift+click ranges
+  let rowEls = new Map();
+  let shownFiles = [];
+  let headBox = null;
+  let busy = false;
   const listBox = h('div');
+  const bar = h('div', { class: 'selbar' });
   const countLabel = h('span', { class: 'muted small' });
   const updateBtn = h('button', { class: 'btn', type: 'button' }, icon('refresh'), 'Check for updates');
   const updateAllBtn = h('button', { class: 'btn primary', type: 'button', style: { display: 'none' } }, icon('arrowUp'), 'Update all');
   const notices = h('div');
 
+  const noun = (n) => typeNoun(type, n);
+  const refresh = () => renderContentTab(inst, type, root, renderToken);
+  const reviewUpdates = (list) => updateReviewDialog(inst, list, refresh);
+  const act = async (fn) => {
+    if (busy) return;
+    busy = true;
+    bar.classList.add('busy');
+    try { await fn(); } catch (e) { toast(e.message, 'error'); } finally { busy = false; bar.classList.remove('busy'); }
+  };
+
+  // ---- selection --------------------------------------------------------
+  const shownItems = () => items.filter((i) => !filter || `${i.title} ${i.fileName} ${i.modId || ''}`.toLowerCase().includes(filter));
+  const selectedItems = () => items.filter((i) => selected.has(i.file));
+
+  const renderBar = () => {
+    if (!selected.size) { bar.replaceChildren(); return; }
+    const sel = selectedItems();
+    const shownSet = new Set(shownFiles);
+    const hidden = sel.filter((i) => !shownSet.has(i.file)).length;
+    const abtn = (label, ic, onclick, cls = '') => h('button', { class: `btn sm ${cls}`, type: 'button', onclick: () => act(onclick) }, icon(ic, 14), label);
+    bar.replaceChildren(
+      h('div', { class: 'sel-info' },
+        h('div', { class: 'stack' }, sel.slice(0, 4).map((i) => avatar({ icon: i.icon, title: i.title }, 'xs')), sel.length > 4 ? h('div', { class: 'avatar xs more' }, `+${sel.length - 4}`) : null),
+        h('div', { class: 'sel-label' }, `${sel.length} selected`, hidden ? h('small', null, ` (${hidden} hidden by filter)`) : null),
+        h('button', { class: 'btn ghost icon', type: 'button', title: 'Clear selection (Esc)', onclick: () => clearSelection() }, icon('x'))),
+      h('div', { class: 'sel-actions' },
+        abtn('Update selected', 'arrowUp', updateSelected, 'primary'),
+        abtn('Enable', 'check', () => bulkToggle(true)),
+        abtn('Disable', 'x', () => bulkToggle(false)),
+        abtn('Pin', 'pin', () => bulkPin(true)),
+        abtn('Unpin', 'pin', () => bulkPin(false)),
+        abtn('Copy list', 'copy', copyList),
+        abtn('Send to instance…', 'upload', sendSelected),
+        abtn('Remove', 'trash', removeSelected, 'danger')));
+  };
+
+  const syncSelection = () => {
+    for (const [file, { row, box }] of rowEls) {
+      const on = selected.has(file);
+      box.checked = on;
+      row.classList.toggle('selected', on);
+    }
+    if (headBox) {
+      const n = shownFiles.filter((f) => selected.has(f)).length;
+      headBox.checked = shownFiles.length > 0 && n === shownFiles.length;
+      headBox.indeterminate = n > 0 && n < shownFiles.length;
+    }
+    listBox.classList.toggle('has-selection', selected.size > 0);
+    renderBar();
+  };
+  const clearSelection = () => { selected.clear(); anchor = null; syncSelection(); };
+  const selectAllShown = () => { for (const f of shownFiles) selected.add(f); syncSelection(); };
+  const toggleShown = (on) => { for (const f of shownFiles) { if (on) selected.add(f); else selected.delete(f); } anchor = null; syncSelection(); };
+  const onRowBox = (it, e) => {
+    const on = e.currentTarget.checked;
+    const from = anchor ? shownFiles.indexOf(anchor) : -1;
+    const to = shownFiles.indexOf(it.file);
+    if (e.shiftKey && from !== -1 && to !== -1) {
+      for (let k = Math.min(from, to); k <= Math.max(from, to); k++) { if (on) selected.add(shownFiles[k]); else selected.delete(shownFiles[k]); }
+    } else if (on) selected.add(it.file); else selected.delete(it.file);
+    anchor = it.file;
+    syncSelection();
+  };
+
+  // ---- updates ----------------------------------------------------------
+  const runCheck = async () => {
+    const res = await call('content:checkUpdates', inst.id);
+    for (const e of res.filter((u) => u.error)) toast(e.error, 'warn');
+    updates = new Map(res.filter((u) => !u.error && u.type === type).map((u) => [u.file, u]));
+    checked = true;
+    if (!res.length) toast('Everything is up to date', 'good');
+    updateAllBtn.style.display = updates.size ? '' : 'none';
+    updateAllBtn.replaceChildren(icon('arrowUp'), `Update all (${updates.size})`);
+    updateAllBtn.onclick = () => reviewUpdates([...updates.values()]);
+    renderList();
+  };
+  const updateSelected = async () => {
+    if (!checked) await runCheck();
+    const list = [...updates.values()].filter((u) => selected.has(u.file));
+    if (!list.length) { toast(`None of the selected ${noun(2)} have an update.`, 'info'); return; }
+    reviewUpdates(list);
+  };
+
+  // ---- bulk actions -----------------------------------------------------
+  const bulkToggle = async (on) => {
+    const sel = selectedItems().filter((i) => i.enabled !== on);
+    if (!sel.length) { toast(`The selected ${noun(2)} are already ${on ? 'enabled' : 'disabled'}.`, 'info'); return; }
+    await call('content:toggleMany', inst.id, sel.map((i) => i.file), on);
+    for (const i of sel) i.enabled = on;
+    renderList();
+    toast(`${on ? 'Enabled' : 'Disabled'} ${sel.length} ${noun(sel.length)}`, 'good');
+  };
+  const bulkPin = async (on) => {
+    const sel = selectedItems();
+    await call('content:pinMany', inst.id, sel.map((i) => i.file), on);
+    for (const i of sel) i.pinned = on;
+    renderList();
+    toast(`${on ? 'Pinned' : 'Unpinned'} ${sel.length} ${noun(sel.length)}${on ? '. Updates will skip them.' : ''}`, 'good');
+  };
+  const copyList = async () => {
+    const r = await call('content:copyList', inst.id, selectedItems().map((i) => i.file));
+    toast(`Copied ${r.count} ${noun(r.count)} as a Markdown list`, 'good');
+  };
+  const sendSelected = async () => { await sendToInstanceDialog(inst, selectedItems().map((i) => i.file), type); };
+  const removeSelected = async () => {
+    const sel = selectedItems();
+    const ok = await confirmDialog(`Remove ${sel.length} ${noun(sel.length)}?`,
+      `This deletes ${sel.length} ${noun(sel.length)} from ${inst.name}: ${sel.slice(0, 5).map((i) => i.title).join(', ')}${sel.length > 5 ? `, and ${sel.length - 5} more` : ''}. This can't be undone.`,
+      `Remove ${sel.length}`, true);
+    if (!ok) return;
+    await call('content:remove', inst.id, sel.map((i) => i.file));
+    const gone = new Set(sel.map((i) => i.file));
+    items = items.filter((i) => !gone.has(i.file));
+    selected.clear();
+    renderList();
+    toast(`Removed ${sel.length} ${noun(sel.length)}`);
+  };
+
+  // ---- smart select -----------------------------------------------------
+  const applySmart = (pred, label) => {
+    const hit = items.filter(pred);
+    if (!hit.length) { toast(`No ${noun(2)} match “${label}”.`, 'info'); return; }
+    selected.clear();
+    for (const i of hit) selected.add(i.file);
+    anchor = null;
+    syncSelection();
+  };
+  const smartMenu = (anchorEl) => {
+    const count = (p) => items.filter(p).length;
+    const entry = (label, pred, ic, opts = {}) => ({
+      label: `${label}${opts.count === false ? '' : ` (${count(pred)})`}`, icon: ic,
+      onClick: () => act(async () => { if (opts.needsCheck && !checked) await runCheck(); applySmart(pred, label); }),
+    });
+    popupMenu(anchorEl, [
+      entry('All disabled', (i) => !i.enabled, 'x'),
+      { ...entry('All with updates', (i) => updates.has(i.file), 'arrowUp', { needsCheck: true, count: checked }), label: `All with updates${checked ? ` (${updates.size})` : ' (checks first)'}` },
+      entry('All not linked to Modrinth or CurseForge', (i) => i.source === 'local', 'info'),
+      ...(type === 'mod' ? [entry('All duplicates', (i) => Boolean(i.duplicateOf), 'alert')] : []),
+      '-',
+      entry('All from Modrinth', (i) => i.source === 'modrinth', 'check'),
+      entry('All from CurseForge', (i) => i.source === 'curseforge', 'check'),
+      ...(type === 'mod' ? [entry('All client-only', (i) => i.clientOnly, 'box')] : []),
+    ]);
+  };
+
+  // ---- the list ---------------------------------------------------------
   const renderList = () => {
-    const shown = items.filter((i) => !filter || `${i.title} ${i.fileName} ${i.modId || ''}`.toLowerCase().includes(filter));
+    const have = new Set(items.map((i) => i.file));
+    for (const f of [...selected]) if (!have.has(f)) selected.delete(f);
+    const shown = shownItems();
+    shownFiles = shown.map((i) => i.file);
+    rowEls = new Map();
+    headBox = null;
     countLabel.textContent = `${items.length} ${type === 'mod' ? 'mods' : 'files'}${items.filter((i) => !i.enabled).length ? ` · ${items.filter((i) => !i.enabled).length} disabled` : ''}`;
     const dups = items.filter((i) => i.duplicateOf);
     const unknown = items.filter((i) => i.source === 'local');
@@ -788,25 +955,43 @@ async function renderContentTab(inst, type, root, token) {
         h('h2', null, items.length ? 'Nothing matches' : `No ${TYPES[type].toLowerCase()} yet`),
         h('div', null, items.length ? 'Try another filter.' : 'Browse Modrinth and CurseForge, or add files you already have.'),
         !items.length ? h('div', { class: 'row' }, h('button', { class: 'btn primary', type: 'button', onclick: () => go('browse', { type, instanceId: inst.id }) }, icon('search'), `Find ${TYPES[type].toLowerCase()}`)) : null));
+      syncSelection();
       return;
     }
-    listBox.replaceChildren(h('div', { class: 'list' }, shown.map((it) => {
+    headBox = h('input', { type: 'checkbox', title: 'Select everything shown', onclick: (e) => toggleShown(e.currentTarget.checked) });
+    const head = h('div', { class: 'item content-head' },
+      headBox,
+      h('button', { class: 'btn ghost icon sm', type: 'button', title: 'Smart select…', onclick: (e) => smartMenu(e.currentTarget) }, icon('chevronDown', 14)),
+      h('div', null, 'Name'),
+      h('div', null, 'Version'),
+      h('div', null, 'Source'),
+      h('div', { class: 'c-switch' }, 'Enabled'),
+      h('div'));
+    const rows = shown.map((it) => {
       const up = updates.get(it.file);
-      const toggle = h('input', {
-        type: 'checkbox', checked: it.enabled, title: it.enabled ? 'Disable' : 'Enable', onchange: async (e) => {
-          try { await call('content:toggle', inst.id, it.file, e.target.checked); it.enabled = e.target.checked; renderList(); } catch (err) { toast(err.message, 'error'); }
-        },
+      const box = h('input', {
+        type: 'checkbox', class: 'sel', title: 'Select (Shift+click for a range)',
+        onmousedown: (e) => { if (e.shiftKey) e.preventDefault(); }, // no text selection while range-selecting
+        onclick: (e) => onRowBox(it, e),
       });
-      return h('div', { class: `item ${it.enabled ? '' : 'disabled'}` },
-        toggle,
+      const sw = h('label', { class: 'switch', title: it.enabled ? 'Enabled: click to disable' : 'Disabled: click to enable' },
+        h('input', {
+          type: 'checkbox', checked: it.enabled, onchange: async (e) => {
+            try { await call('content:toggle', inst.id, it.file, e.target.checked); it.enabled = e.target.checked; renderList(); } catch (err) { toast(err.message, 'error'); e.target.checked = it.enabled; }
+          },
+        }), h('span'));
+      const row = h('div', { class: `item ${it.enabled ? '' : 'disabled'}` },
+        box,
         avatar({ icon: it.icon, title: it.title }, 'sm'),
         h('div', { class: 'i-main', style: { minWidth: 0 } },
           h('div', { class: 'i-title ellipsis', title: it.title }, it.title,
+            it.clientOnly ? h('span', { class: 'badge client plain', style: { marginLeft: '8px' }, title: "Client-only: it's not needed on a server" }, 'Client') : null,
             it.duplicateOf ? h('span', { class: 'badge warn plain', style: { marginLeft: '8px' } }, 'Duplicate') : null,
             it.pinned ? h('span', { class: 'badge plain', style: { marginLeft: '8px' }, title: 'Pinned: skipped by updates' }, 'Pinned') : null),
           h('div', { class: 'i-file ellipsis', title: it.fileName }, it.fileName)),
         h('div', { class: 'i-ver ellipsis', title: it.versionName }, up ? h('span', { class: 'badge good plain', title: `Update: ${up.next}` }, `→ ${up.next}`) : it.versionName),
         h('div', null, sourceBadge(it.source, it.url)),
+        h('div', { class: 'c-switch' }, sw),
         h('div', { class: 'i-actions' },
           up ? h('button', { class: 'btn sm primary', type: 'button', title: `Update to ${up.next}`, onclick: () => reviewUpdates([up]) }, icon('arrowUp', 14)) : null,
           h('button', { class: 'btn ghost icon', type: 'button', title: 'More', onclick: (e) => popupMenu(e.currentTarget, [
@@ -821,25 +1006,16 @@ async function renderContentTab(inst, type, root, token) {
               toast(`Removed ${it.title}`);
             } },
           ]) }, icon('more'))));
-    })));
+      rowEls.set(it.file, { row, box });
+      return row;
+    });
+    listBox.replaceChildren(h('div', { class: 'list content-list' }, head, rows));
+    syncSelection();
   };
-
-  const refresh = () => renderContentTab(inst, type, root, renderToken);
-  const reviewUpdates = (list) => updateReviewDialog(inst, list, refresh);
 
   updateBtn.onclick = async () => {
     updateBtn.disabled = true;
-    try {
-      const res = await call('content:checkUpdates', inst.id);
-      for (const e of res.filter((u) => u.error)) toast(e.error, 'warn');
-      updates = new Map(res.filter((u) => !u.error && u.type === type).map((u) => [u.file, u]));
-      const all = res.filter((u) => !u.error);
-      if (!all.length) toast('Everything is up to date', 'good');
-      updateAllBtn.style.display = updates.size ? '' : 'none';
-      updateAllBtn.replaceChildren(icon('arrowUp'), `Update all (${updates.size})`);
-      updateAllBtn.onclick = () => reviewUpdates([...updates.values()]);
-      renderList();
-    } catch (e) { toast(e.message, 'error'); } finally { updateBtn.disabled = false; }
+    try { await runCheck(); } catch (e) { toast(e.message, 'error'); } finally { updateBtn.disabled = false; }
   };
 
   const undoSlot = h('span');
@@ -866,8 +1042,93 @@ async function renderContentTab(inst, type, root, token) {
       try { const added = await call('content:addFiles', inst.id, type); if (added?.length) { toast(`Added ${added.length} file(s)`, 'good'); renderContentTab(inst, type, root, renderToken); } } catch (e) { toast(e.message, 'error'); }
     } }, icon('file'), 'Add files'),
     h('button', { class: 'btn primary', type: 'button', onclick: () => go('browse', { type, instanceId: inst.id }) }, icon('plus'), `Add ${type === 'mod' ? 'mods' : TYPES[type].toLowerCase()}`));
-  root.replaceChildren(toolbar, notices, listBox);
+  root.replaceChildren(toolbar, notices, listBox, bar);
   renderList();
+
+  // Keyboard: Ctrl+A selects everything shown, Esc clears the selection.
+  if (contentKeyHandler) document.removeEventListener('keydown', contentKeyHandler);
+  const onKey = (e) => {
+    if (stale(token) || !document.body.contains(listBox)) { document.removeEventListener('keydown', onKey); return; }
+    if ($('#modal-root').children.length) return;
+    const el = document.activeElement;
+    const typing = el && (el.tagName === 'TEXTAREA' || el.tagName === 'SELECT' || (el.tagName === 'INPUT' && el.type !== 'checkbox'));
+    if ((e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey && e.key.toLowerCase() === 'a') {
+      if (typing) return; // let the filter box select its own text
+      e.preventDefault();
+      selectAllShown();
+    } else if (e.key === 'Escape' && selected.size) {
+      clearSelection();
+    }
+  };
+  contentKeyHandler = onKey;
+  document.addEventListener('keydown', onKey);
+
+  // Fill in Modrinth's client/server info for mods linked before it was stored, so "Client" badges are complete.
+  if (type === 'mod') {
+    call('content:refreshSides', inst.id).then(async (r) => {
+      if (!r?.updated || stale(token) || !document.body.contains(listBox)) return;
+      items = await call('content:list', inst.id, type);
+      if (!stale(token) && document.body.contains(listBox)) renderList();
+    }).catch(() => {});
+  }
+}
+
+// ----- send to another instance
+async function sendToInstanceDialog(inst, rels, type) {
+  const all = (await call('inst:list')).filter((i) => i.id !== inst.id);
+  if (!all.length) { toast('You only have one instance. Create another one to send these to.', 'info'); return; }
+  let target = null;
+  const list = h('div', { class: 'list pick-list' });
+  const sendBtnRef = { el: null };
+  const draw = () => {
+    list.replaceChildren(...all.map((i) => h('div', {
+      class: `item pick-row ${target === i.id ? 'selected' : ''}`, onclick: () => { target = i.id; draw(); },
+    }, h('input', { type: 'radio', name: 'target', checked: target === i.id }), avatar(i, 'sm'),
+    h('div', { style: { minWidth: 0 } }, h('div', { class: 'i-title ellipsis' }, i.name), h('div', { class: 'i-file ellipsis' }, instSubtitle(i))))));
+    if (sendBtnRef.el) sendBtnRef.el.disabled = !target;
+  };
+  draw();
+  const m = modal({
+    title: `Send ${rels.length} ${typeNoun(type, rels.length)} to…`,
+    body: [
+      h('p', { style: { margin: 0, color: 'var(--muted)', lineHeight: 1.5 } },
+        'Files from Modrinth or CurseForge are installed in the version that fits the other instance (its Minecraft version and loader), together with what they need. Files you added yourself are copied only if their loader matches. Nothing is changed in this instance.'),
+      list,
+    ],
+    actions: [
+      { label: 'Cancel', class: 'ghost' },
+      {
+        label: 'Send', class: 'primary', icon: 'upload', disabled: true, onClick: async () => {
+          const dest = all.find((i) => i.id === target);
+          const r = await call('content:sendToInstance', inst.id, rels, target);
+          sendSummaryDialog(dest, r);
+        },
+      },
+    ],
+  });
+  sendBtnRef.el = m.el.querySelectorAll('.m-foot .btn')[1];
+  sendBtnRef.el.disabled = !target;
+}
+
+function sendSummaryDialog(dest, r) {
+  const section = (title, cls, rows, fmt) => (rows.length ? h('div', { class: 'sum-sec' },
+    h('div', { class: `sum-head ${cls}` }, `${title} (${rows.length})`),
+    h('ul', null, rows.map((x) => h('li', null, h('b', null, x.title), fmt ? h('span', { class: 'muted' }, ` — ${fmt(x)}`) : null)))) : null);
+  const none = !r.installed.length && !r.copied.length && !r.skipped.length && !r.unavailable.length && !r.blocked.length;
+  modal({
+    title: `Sent to ${dest.name}`,
+    body: [
+      none ? h('p', { style: { margin: 0 } }, 'Nothing was sent.') : null,
+      section('Installed', 'good', r.installed, (x) => (x.source === 'modrinth' ? 'from Modrinth' : 'from CurseForge')),
+      section('Copied', 'good', r.copied, () => 'copied as it is'),
+      section('Already there', 'muted', r.skipped, (x) => x.reason),
+      section(`Not available for ${dest.mcVersion}`, 'warn', r.unavailable, (x) => x.reason),
+      section('Needs a manual download', 'warn', r.blocked, () => 'the author only allows downloads from their CurseForge page'),
+      r.warnings.length ? h('div', { class: 'sum-sec' }, h('div', { class: 'sum-head warn' }, 'Heads up'), h('ul', null, r.warnings.map((w) => h('li', { class: 'muted' }, w)))) : null,
+    ],
+    actions: [{ label: 'Open instance', class: 'ghost', onClick: () => { go('instance', { id: dest.id }); } }, { label: 'Done', class: 'primary' }],
+    onClose: () => { if (r.blockedSession) blockedDialog(r.blockedSession, dest.id); },
+  });
 }
 
 // ----- update review

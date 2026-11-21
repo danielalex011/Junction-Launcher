@@ -6,7 +6,7 @@ const fs = require('fs');
 const path = require('path');
 const AdmZip = require('adm-zip');
 
-const { makeCtx, sha1, sha512, fabricJar, tmpDir } = require('./helpers');
+const { makeCtx, sha1, sha512, fabricJar, forgeJar, tmpDir } = require('./helpers');
 const { Instances } = require('../src/core/instances');
 const { createSources } = require('../src/core/sources');
 const { ContentManager } = require('../src/core/content/manager');
@@ -154,8 +154,8 @@ function fakeContentApis() {
     AANobbMI: [mrVersion('s1', 'AANobbMI', '0.6.0', f.sodiumMr)],
   };
   const mrProjects = {
-    COOL: { id: 'COOL', slug: 'coolmod', title: 'Cool Mod', project_type: 'mod', icon_url: null },
-    LIBX: { id: 'LIBX', slug: 'libx', title: 'Lib X', project_type: 'mod' },
+    COOL: { id: 'COOL', slug: 'coolmod', title: 'Cool Mod', project_type: 'mod', icon_url: null, client_side: 'required', server_side: 'unsupported' },
+    LIBX: { id: 'LIBX', slug: 'libx', title: 'Lib X', project_type: 'mod', client_side: 'required', server_side: 'required' },
     P7dR8mSH: { id: 'P7dR8mSH', slug: 'fabric-api', title: 'Fabric API', project_type: 'mod' },
     AANobbMI: { id: 'AANobbMI', slug: 'sodium', title: 'Sodium', project_type: 'mod' },
   };
@@ -474,4 +474,173 @@ test('Microsoft sign-in explains when Mojang has not approved the app', async ()
   const accounts = await new Accounts(ctx).load();
   const b = await accounts.beginMicrosoftLogin();
   await assert.rejects(accounts.completeMicrosoftLogin(b.loginId), (e) => e.code === 'APP_NOT_APPROVED');
+});
+
+// ------------------------------------------------------------------ multi-select: bulk actions + send to instance
+function countIndexWrites(instances) {
+  const counter = { n: 0 };
+  const orig = instances.writeIndex.bind(instances);
+  instances.writeIndex = async (...a) => { counter.n++; return orig(...a); };
+  return counter;
+}
+
+async function fabricInstance(instances, name, mc = '1.21.1') {
+  return instances.create({ name, mcVersion: mc, loader: { type: 'fabric', version: '0.16.10' } });
+}
+
+test('bulk actions: enable/disable, pin and remove many files, with one content.json write each', async () => {
+  const api = fakeContentApis();
+  const ctx = await makeCtx(api.routes, { cfKey: 'k' });
+  const { instances, content } = services(ctx);
+  const inst = await fabricInstance(instances, 'Bulk');
+  await content.installProject(inst.id, { source: 'modrinth', id: 'COOL' }, 'mod'); // + Lib X + Fabric API
+  const mods = await instances.listContent(inst.id, 'mod');
+  assert.equal(mods.length, 3);
+  const rels = mods.map((m) => m.file);
+  const writes = countIndexWrites(instances);
+
+  // Enabling/disabling only renames files: the index isn't written at all.
+  assert.deepEqual(await content.setEnabledMany(inst.id, rels.slice(0, 2), false), { changed: 2 });
+  assert.deepEqual(await content.setEnabledMany(inst.id, rels.slice(0, 2), false), { changed: 0 }, 'already disabled');
+  assert.equal(writes.n, 0);
+  const afterOff = await instances.listContent(inst.id, 'mod');
+  assert.equal(afterOff.filter((m) => !m.enabled).length, 2);
+  writes.n = 0;
+  await content.setEnabledMany(inst.id, rels, true);
+  assert.equal((await instances.listContent(inst.id, 'mod')).filter((m) => !m.enabled).length, 0);
+
+  // Pinning three files is one index write.
+  writes.n = 0;
+  await content.setPinnedMany(inst.id, rels, true);
+  assert.equal(writes.n, 1);
+  assert.ok((await instances.listContent(inst.id, 'mod')).every((m) => m.pinned));
+  writes.n = 0;
+  await content.setPinnedMany(inst.id, rels.slice(0, 1), false);
+  assert.equal(writes.n, 1);
+  await assert.rejects(content.setPinnedMany(inst.id, ['../evil.jar'], true), /Unsafe/);
+  assert.equal((await instances.listContent(inst.id, 'mod')).filter((m) => m.pinned).length, 2);
+
+  // Removing two files (one enabled, one disabled) is one index write and removes both files from disk.
+  await content.setEnabledMany(inst.id, [rels[1]], false);
+  writes.n = 0;
+  await content.removeFiles(inst.id, rels.slice(0, 2));
+  assert.equal(writes.n, 1);
+  assert.equal((await instances.listContent(inst.id, 'mod')).length, 1);
+  assert.ok(!fs.existsSync(instances.contentPath(inst.id, rels[1], false)), 'the .disabled file is gone too');
+});
+
+test('copy list: names and project links as Markdown', async () => {
+  const api = fakeContentApis();
+  const ctx = await makeCtx(api.routes, { cfKey: 'k' });
+  const { instances, content } = services(ctx);
+  const inst = await fabricInstance(instances, 'Md');
+  await content.installProject(inst.id, { source: 'modrinth', id: 'COOL' }, 'mod');
+  fs.writeFileSync(path.join(instances.gameDir(inst.id), 'mods', 'mine.jar'), fabricJar('mine', 'My [Tweaks]', '1.2'));
+  const list = await instances.listContent(inst.id, 'mod');
+  const cool = list.find((m) => m.title === 'Cool Mod');
+  const mine = list.find((m) => m.modId === 'mine');
+  const md = await content.markdownList(inst.id, [cool.file, mine.file, 'mods/missing.jar']);
+  assert.equal(md, '- [Cool Mod](https://modrinth.com/mod/coolmod) — 2.0.0\n- My \\[Tweaks\\] — 1.2');
+});
+
+test('client-only: from the jar (environment) and from Modrinth (stored in content.json)', async () => {
+  const api = fakeContentApis();
+  const ctx = await makeCtx(api.routes, { cfKey: 'k' });
+  const { instances, content } = services(ctx);
+  const inst = await fabricInstance(instances, 'Sides');
+  await content.installProject(inst.id, { source: 'modrinth', id: 'COOL' }, 'mod'); // Modrinth: client required, server unsupported
+  const modsDir = path.join(instances.gameDir(inst.id), 'mods');
+  fs.writeFileSync(path.join(modsDir, 'hud.jar'), fabricJar('hud', 'Fancy HUD', '1.0', { environment: 'client' }));
+  fs.writeFileSync(path.join(modsDir, 'both.jar'), fabricJar('both', 'Both Sides', '1.0', { environment: '*' }));
+  const list = await instances.listContent(inst.id, 'mod');
+  const flag = (title) => list.find((m) => m.title === title).clientOnly;
+  assert.equal(flag('Cool Mod'), true, 'Modrinth says server_side is unsupported');
+  assert.equal(flag('Fancy HUD'), true, "the jar's own environment says client");
+  assert.equal(flag('Both Sides'), false);
+  assert.equal(flag('Lib X'), false, 'required on both sides');
+  const idx = await instances.readIndex(inst.id);
+  assert.deepEqual(idx.files[list.find((m) => m.title === 'Cool Mod').file].sides, { client: 'required', server: 'unsupported' });
+
+  // Mods linked before sides were stored get them with one request and one write.
+  const rel = list.find((m) => m.title === 'Cool Mod').file;
+  await instances.withIndex(inst.id, (i) => { delete i.files[rel].sides; });
+  assert.equal((await instances.listContent(inst.id, 'mod')).find((m) => m.title === 'Cool Mod').clientOnly, false);
+  const writes = countIndexWrites(instances);
+  const before = ctx.requestLog.length;
+  assert.deepEqual(await content.refreshSides(inst.id), { updated: 1 });
+  assert.equal(writes.n, 1);
+  assert.equal(ctx.requestLog.slice(before).filter((r) => /\/projects\?ids=/.test(r.url)).length, 1);
+  assert.equal((await instances.listContent(inst.id, 'mod')).find((m) => m.title === 'Cool Mod').clientOnly, true);
+  assert.deepEqual(await content.refreshSides(inst.id), { updated: 0 });
+});
+
+test('send to instance: installs the best version for the target, copies matching local files, and reports the rest', async () => {
+  const api = fakeContentApis();
+  const ctx = await makeCtx(api.routes, { cfKey: 'k' });
+  const { instances, content } = services(ctx);
+  const a = await fabricInstance(instances, 'Source');
+  const b = await fabricInstance(instances, 'Target');
+  await content.installProject(a.id, { source: 'modrinth', id: 'COOL' }, 'mod'); // + Lib X + Fabric API
+  await content.installProject(a.id, { source: 'modrinth', id: 'AANobbMI' }, 'mod'); // Sodium
+  const modsA = path.join(instances.gameDir(a.id), 'mods');
+  fs.writeFileSync(path.join(modsA, 'tweaks.jar'), fabricJar('tweaks', 'My Tweaks', '1.0'));
+  fs.writeFileSync(path.join(modsA, 'oldforge.jar'), forgeJar('oldforge', 'Old Forge Mod', '1.0'));
+  await content.installProject(b.id, { source: 'modrinth', id: 'AANobbMI' }, 'mod'); // Sodium is already in B
+  const listA = await instances.listContent(a.id, 'mod');
+  const rel = (title) => listA.find((m) => m.title === title).file;
+
+  const r = await content.sendToInstance(a.id, [rel('Cool Mod'), rel('Sodium'), rel('My Tweaks'), rel('Old Forge Mod')], b.id);
+  assert.deepEqual(r.installed.map((i) => i.title).sort(), ['Cool Mod', 'Fabric API', 'Lib X'], 'the mod plus what it needs');
+  assert.deepEqual(r.skipped.map((s) => [s.title, s.reason]), [['Sodium', 'already installed']]);
+  assert.deepEqual(r.copied.map((c) => c.title), ['My Tweaks']);
+  assert.equal(r.unavailable.length, 1);
+  assert.equal(r.unavailable[0].title, 'Old Forge Mod');
+  assert.match(r.unavailable[0].reason, /built for forge, but the target uses fabric/);
+  assert.ok(r.warnings.some((w) => /1 local mod/.test(w)));
+  const listB = await instances.listContent(b.id, 'mod');
+  assert.deepEqual(listB.map((m) => m.title).sort(), ['Cool Mod', 'Fabric API', 'Lib X', 'My Tweaks', 'Sodium']);
+  assert.equal(listB.find((m) => m.title === 'Cool Mod').source, 'modrinth');
+  assert.equal(listB.find((m) => m.title === 'Cool Mod').clientOnly, true, 'sides travel with the install');
+  assert.equal(listB.find((m) => m.title === 'My Tweaks').source, 'local');
+  assert.equal((await instances.listContent(a.id, 'mod')).length, 6, 'the source instance is untouched');
+
+  // Sending again finds everything already there.
+  const again = await content.sendToInstance(a.id, [rel('Cool Mod'), rel('My Tweaks')], b.id);
+  assert.equal(again.installed.length + again.copied.length, 0);
+  assert.deepEqual(again.skipped.map((s) => s.title).sort(), ['Cool Mod', 'My Tweaks']);
+
+  await assert.rejects(content.sendToInstance(a.id, [rel('Cool Mod')], a.id), /different instance/);
+});
+
+test('send to instance: nothing for a Minecraft version without a build, vanilla targets, and one index write for copied files', async () => {
+  const api = fakeContentApis();
+  const ctx = await makeCtx(api.routes, { cfKey: 'k' });
+  const { instances, content } = services(ctx);
+  const a = await fabricInstance(instances, 'Source');
+  await content.installProject(a.id, { source: 'modrinth', id: 'AANobbMI' }, 'mod');
+  fs.writeFileSync(path.join(instances.gameDir(a.id), 'resourcepacks', 'faithful.zip'), 'zip bytes');
+  fs.writeFileSync(path.join(instances.gameDir(a.id), 'mods', 'a.jar'), fabricJar('a', 'Local A', '1.0'));
+  fs.writeFileSync(path.join(instances.gameDir(a.id), 'mods', 'b.jar'), fabricJar('b', 'Local B', '1.0'));
+  const mods = await instances.listContent(a.id, 'mod');
+  const packs = await instances.listContent(a.id, 'resourcepack');
+
+  // A different Minecraft version: Sodium has no build for it.
+  const old = await fabricInstance(instances, 'Old', '1.20.1');
+  const r1 = await content.sendToInstance(a.id, [mods.find((m) => m.title === 'Sodium').file], old.id);
+  assert.equal(r1.installed.length, 0);
+  assert.match(r1.unavailable[0].reason, /no version for Minecraft 1\.20\.1 \+ fabric/);
+
+  // Vanilla can't run mods, but resource packs go over.
+  const vanilla = await instances.create({ name: 'Vanilla', mcVersion: '1.21.1', loader: { type: 'vanilla' } });
+  const r2 = await content.sendToInstance(a.id, [mods[0].file, packs[0].file], vanilla.id);
+  assert.match(r2.unavailable[0].reason, /no mod loader/);
+  assert.deepEqual(r2.copied.map((c) => c.title), ['faithful']);
+  assert.ok(fs.existsSync(instances.contentPath(vanilla.id, 'resourcepacks/faithful.zip')));
+
+  // Two local files copied = one write to the target's content.json.
+  const b = await fabricInstance(instances, 'Target');
+  const writes = countIndexWrites(instances);
+  const r3 = await content.sendToInstance(a.id, mods.filter((m) => m.title.startsWith('Local')).map((m) => m.file), b.id);
+  assert.equal(r3.copied.length, 2);
+  assert.equal(writes.n, 1);
 });

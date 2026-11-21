@@ -1,5 +1,5 @@
 'use strict';
-const { app, BrowserWindow, ipcMain, dialog, shell, safeStorage, Menu, protocol, net, nativeImage } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, shell, safeStorage, Menu, protocol, net, nativeImage, clipboard } = require('electron');
 const { pathToFileURL } = require('url');
 const fs = require('fs');
 const path = require('path');
@@ -196,6 +196,25 @@ function registerIpc() {
   handle('content:remove', async (id, rels) => content.removeFiles(id, rels));
   handle('content:toggle', async (id, rel, enabled) => content.setEnabled(id, rel, enabled));
   handle('content:pin', async (id, rel, pinned) => content.setPinned(id, rel, pinned));
+  // Bulk actions for the selection bar: one call per action, at most one content.json write each.
+  const relList = (rels) => {
+    if (!Array.isArray(rels) || rels.some((r) => typeof r !== 'string')) throw new Error('Nothing selected.');
+    return [...new Set(rels)];
+  };
+  handle('content:toggleMany', async (id, rels, enabled) => content.setEnabledMany(id, relList(rels), Boolean(enabled)));
+  handle('content:pinMany', async (id, rels, pinned) => content.setPinnedMany(id, relList(rels), Boolean(pinned)));
+  handle('content:copyList', async (id, rels) => {
+    const md = await content.markdownList(id, relList(rels));
+    clipboard.writeText(md);
+    return { count: md ? md.split('\n').length : 0 };
+  });
+  handle('content:refreshSides', async (id) => content.refreshSides(id));
+  handle('content:sendToInstance', async (id, rels, targetId) => {
+    const list = relList(rels);
+    if (running.has(targetId)) throw new Error('Close the game on the target instance before sending mods to it.');
+    const r = await ctx.tasks.run(`Sending ${list.length} file${list.length === 1 ? '' : 's'}`, (t) => content.sendToInstance(id, list, targetId, { report: t.update }), { instanceId: targetId });
+    return { ...r, blockedSession: startBlockedSession(targetId, r.blocked) };
+  });
   handle('content:addFiles', async (id, type) => {
     const filters = type === 'mod' ? [{ name: 'Mods', extensions: ['jar'] }] : [{ name: 'Packs', extensions: ['zip'] }];
     const r = await dialog.showOpenDialog(win, { properties: ['openFile', 'multiSelections'], filters });

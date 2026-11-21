@@ -47,7 +47,7 @@ function readModMetadata(file) {
     const quilt = read('quilt.mod.json');
     if (quilt) {
       const j = parseLooseJson(quilt).quilt_loader || {};
-      return { loader: 'quilt', modId: j.id, name: j.metadata?.name || j.id, version: j.version };
+      return { loader: 'quilt', modId: j.id, name: j.metadata?.name || j.id, version: j.version, environment: j.minecraft?.environment };
     }
     for (const [name, loader] of [['META-INF/neoforge.mods.toml', 'neoforge'], ['META-INF/mods.toml', 'forge']]) {
       const t = read(name);
@@ -70,4 +70,14 @@ function readModMetadata(file) {
   return null;
 }
 
-module.exports = { readModMetadata, parseModsToml, parseLooseJson };
+/**
+ * Is this mod only needed on the client (safe to leave off a server)?
+ * Two sources: the jar's own "environment" field (Fabric / Quilt: "client"), and, when the
+ * project is known, Modrinth's client_side / server_side (stored in content.json as sides).
+ */
+function isClientOnly({ environment, sides } = {}) {
+  if (environment === 'client') return true;
+  return Boolean(sides && sides.server === 'unsupported' && sides.client !== 'unsupported');
+}
+
+module.exports = { readModMetadata, parseModsToml, parseLooseJson, isClientOnly };

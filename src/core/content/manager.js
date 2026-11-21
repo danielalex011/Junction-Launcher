@@ -3,7 +3,7 @@
 const fs = require('fs');
 const fsp = fs.promises;
 const path = require('path');
-const { TYPE_DIR } = require('../instances');
+const { TYPE_DIR, DIR_TYPE } = require('../instances');
 const { compatibleLoaders } = require('../sources');
 const { CurseForge, LOADER_TYPE } = require('../sources/curseforge');
 const { curseFingerprintFile } = require('../sources/fingerprint');
@@ -15,6 +15,14 @@ const RANK = { release: 0, beta: 1, alpha: 2 };
 function pickFile(version) {
   return version.files.find((f) => f.primary) || version.files[0];
 }
+
+/** Modrinth's client_side / server_side, kept in content.json so "client-only" works offline. */
+function sidesOf(project) {
+  return project && (project.clientSide || project.serverSide) ? { client: project.clientSide || null, server: project.serverSide || null } : undefined;
+}
+
+const mdEscape = (t) => String(t).replace(/([\\`*_[\]])/g, '\\$1');
+const baseTitle = (rel, e) => e?.title || e?.meta?.name || path.basename(rel).replace(/\.(jar|zip)$/i, '');
 
 function versionSupports(version, inst, type) {
   if (version.gameVersions?.length && !version.gameVersions.includes(inst.mcVersion)) return false;
@@ -156,7 +164,7 @@ class ContentManager {
       await this.instances.withIndex(instId, (idx) => {
         idx.files[rel] = {
           source: v.source, projectId: v.projectId, versionId: v.id, title, versionName: v.versionNumber,
-          icon: proj?.icon || null, projectUrl: proj?.url || null, slug: proj?.slug, fileUrl: file.url,
+          icon: proj?.icon || null, projectUrl: proj?.url || null, slug: proj?.slug, fileUrl: file.url, sides: sidesOf(proj),
           sha1: file.sha1 || undefined, fromPack, meta: meta || null, metaSize: st.size, metaMtime: st.mtimeMs,
           installedAt: Date.now(),
         };
@@ -225,6 +233,130 @@ class ContentManager {
     });
   }
 
+  // ---- bulk actions (the content list's selection bar) ---------------------
+  // Each one touches content.json at most once, however many files are selected.
+
+  /** Enables or disables many files. This only renames files, so the index isn't touched. */
+  async setEnabledMany(instId, rels, enabled) {
+    let changed = 0;
+    for (const rel of rels) {
+      const from = this.instances.contentPath(instId, rel, !enabled);
+      if (!(await exists(from))) continue;
+      await this.setEnabled(instId, rel, enabled);
+      changed++;
+    }
+    return { changed };
+  }
+
+  /** Pins or unpins many files with one index write. */
+  async setPinnedMany(instId, rels, pinned) {
+    for (const rel of rels) this.instances.contentPath(instId, rel); // rejects unsafe paths
+    await this.instances.withIndex(instId, (idx) => {
+      for (const rel of rels) if (idx.files[rel]) idx.files[rel].pinned = Boolean(pinned);
+    });
+    return { changed: rels.length };
+  }
+
+  /** A Markdown list (names + project links) of the chosen files, in the order given. */
+  async markdownList(instId, rels) {
+    const idx = await this.instances.readIndex(instId);
+    return rels.map((rel) => {
+      const e = idx.files[rel];
+      if (!e) return null;
+      const title = mdEscape(baseTitle(rel, e));
+      const version = e.versionName || e.meta?.version;
+      return `- ${e.projectUrl ? `[${title}](${e.projectUrl})` : title}${version && !String(version).includes('${') ? ` — ${version}` : ''}`;
+    }).filter(Boolean).join('\n');
+  }
+
+  /** Fills in Modrinth's client/server sides for mods that were linked before we stored them. One request, one write. */
+  async refreshSides(instId) {
+    const idx = await this.instances.readIndex(instId);
+    const want = Object.entries(idx.files).filter(([rel, e]) => rel.startsWith('mods/') && e.source === 'modrinth' && e.projectId && !e.sides);
+    if (!want.length) return { updated: 0 };
+    const projects = await this.sources.modrinth.projects([...new Set(want.map(([, e]) => e.projectId))]);
+    const byId = new Map(projects.map((p) => [p.id, p]));
+    if (!want.some(([, e]) => sidesOf(byId.get(e.projectId)))) return { updated: 0 };
+    let updated = 0;
+    await this.instances.withIndex(instId, (fresh) => {
+      for (const [rel, old] of want) {
+        const sides = sidesOf(byId.get(old.projectId));
+        if (fresh.files[rel] && sides) { fresh.files[rel].sides = sides; updated++; }
+      }
+    });
+    return { updated };
+  }
+
+  /**
+   * Copies the chosen files from one instance to another.
+   *   Files linked to Modrinth / CurseForge: the best version for the TARGET's Minecraft version and
+   *   loader is installed, with its dependencies. Local files: copied only if the loader matches.
+   * Returns { installed, copied, skipped, unavailable, blocked, warnings }.
+   */
+  async sendToInstance(srcId, rels, targetId, { report = () => {} } = {}) {
+    if (srcId === targetId) throw new Error('Pick a different instance to send these to.');
+    const target = await this.instances.get(targetId);
+    const srcIdx = await this.instances.readIndex(srcId);
+    const out = { installed: [], copied: [], skipped: [], unavailable: [], blocked: [], warnings: [] };
+    const okLoaders = compatibleLoaders(target.loader?.type, target.mcVersion);
+    const forMods = target.loader?.type && target.loader.type !== 'vanilla' ? ` + ${target.loader.type}` : '';
+    const copiedRels = [];
+    let i = 0;
+    for (const rel of rels) {
+      report(i++ / Math.max(1, rels.length), `Sending ${baseTitle(rel, srcIdx.files[rel])}`);
+      const e = srcIdx.files[rel];
+      const type = DIR_TYPE[String(rel).split('/')[0]];
+      const title = baseTitle(rel, e);
+      if (!e || !type) { out.unavailable.push({ title, reason: 'not found in this instance' }); continue; }
+      if (type === 'mod' && !okLoaders.length) { out.unavailable.push({ title, reason: 'the target instance has no mod loader (it is vanilla)' }); continue; }
+      const summary = await this.installedSummary(targetId);
+
+      if (e.source && e.source !== 'local' && e.projectId != null) {
+        if (summary.byProject.has(`${e.source}:${e.projectId}`) || summary.titles.has(matchKey(title))) { out.skipped.push({ title, reason: 'already installed' }); continue; }
+        if (e.meta?.modId && summary.modIds.has(e.meta.modId)) { out.skipped.push({ title, reason: `already provided by ${path.basename(summary.modIds.get(e.meta.modId))}` }); continue; }
+        let version;
+        try { version = await this.bestVersion(e.source, e.projectId, target, type); } catch (err) { out.unavailable.push({ title, reason: `couldn't check ${e.source === 'modrinth' ? 'Modrinth' : 'CurseForge'} (${String(err.message).split(' for http')[0]})` }); continue; }
+        if (!version) { out.unavailable.push({ title, reason: `no version for Minecraft ${target.mcVersion}${type === 'mod' ? forMods : ''}` }); continue; }
+        try {
+          const r = await this.installVersion(targetId, version, { type });
+          out.installed.push(...r.installed);
+          out.skipped.push(...r.skipped);
+          out.blocked.push(...r.blocked);
+          out.warnings.push(...r.warnings);
+        } catch (err) {
+          out.unavailable.push({ title, reason: err.message });
+        }
+        continue;
+      }
+
+      // A file that isn't linked to either site: copy it, but only if it can run on the target's loader.
+      if (type === 'mod') {
+        const loader = e.meta?.loader;
+        if (!loader) { out.unavailable.push({ title, reason: "can't tell which loader this file is for" }); continue; }
+        if (!okLoaders.includes(loader)) { out.unavailable.push({ title, reason: `built for ${loader}, but the target uses ${target.loader.type}` }); continue; }
+        if (e.meta?.modId && summary.modIds.has(e.meta.modId)) { out.skipped.push({ title, reason: `already provided by ${path.basename(summary.modIds.get(e.meta.modId))}` }); continue; }
+      }
+      const dest = this.instances.contentPath(targetId, rel);
+      if ((await exists(dest)) || (await exists(`${dest}.disabled`))) { out.skipped.push({ title, reason: 'a file with this name is already there' }); continue; }
+      const onPath = this.instances.contentPath(srcId, rel, true);
+      const from = (await exists(onPath)) ? onPath : this.instances.contentPath(srcId, rel, false);
+      if (!(await exists(from))) { out.unavailable.push({ title, reason: 'the file is missing' }); continue; }
+      await ensureDir(path.dirname(dest));
+      await fsp.copyFile(from, dest);
+      copiedRels.push(rel);
+      out.copied.push({ title, file: rel });
+    }
+    if (copiedRels.length) {
+      await this.instances.withIndex(targetId, (idx) => {
+        for (const rel of copiedRels) idx.files[rel] = { sides: srcIdx.files[rel]?.sides, copiedFrom: srcId, installedAt: Date.now() };
+      });
+      if (copiedRels.some((r) => r.startsWith('mods/'))) {
+        out.warnings.push(`${copiedRels.filter((r) => r.startsWith('mods/')).length} local mod(s) were copied as they are. Junction can't tell which Minecraft version they're for, so check they work on ${target.mcVersion}.`);
+      }
+    }
+    return out;
+  }
+
   async addLocalFiles(instId, filePaths, type = 'mod') {
     const dir = path.join(this.instances.gameDir(instId), TYPE_DIR[type]);
     await ensureDir(dir);
@@ -258,7 +390,7 @@ class ContentManager {
         if (!v) continue;
         const p = projects.get(v.projectId);
         const f = v.files.find((x) => x.sha1 === e.sha1) || pickFile(v);
-        found[rel] = { source: 'modrinth', projectId: v.projectId, versionId: v.id, versionName: v.versionNumber, title: p?.title, icon: p?.icon, projectUrl: p?.url, slug: p?.slug, fileUrl: f?.url };
+        found[rel] = { source: 'modrinth', projectId: v.projectId, versionId: v.id, versionName: v.versionNumber, title: p?.title, icon: p?.icon, projectUrl: p?.url, slug: p?.slug, fileUrl: f?.url, sides: sidesOf(p) };
       }
     } catch (e) {
       report(null, `Modrinth lookup failed: ${e.message}`);
@@ -459,4 +591,4 @@ class ContentManager {
   }
 }
 
-module.exports = { ContentManager, pickFile, versionSupports };
+module.exports = { ContentManager, pickFile, versionSupports, sidesOf };

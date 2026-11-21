@@ -42,7 +42,7 @@ Data flow for a feature: core function → `handle('x:y', …)` in main.js → `
 
 - **Project** (search hit / details): `{ source: 'modrinth'|'curseforge', id, slug, title, summary, icon, url, type: 'mod'|'modpack'|'resourcepack'|'shader', ... }`. Merged hits add `alsoOn: [{source, id, slug, url}]`.
 - **Version**: `{ source, id, projectId, versionNumber, gameVersions, loaders, releaseType: 'release'|'beta'|'alpha', date, files: [{url, filename, sha1, sha512?, size, primary}], deps: [{source, projectId, versionId?, type}] }`. CurseForge file IDs are numbers, Modrinth IDs are strings, so compare with `String(a) === String(b)`.
-- **content.json** (per instance): `files["mods/x.jar"] = { source, projectId, versionId, title, versionName, icon, projectUrl, fileUrl, sha1, meta: {modId, name, version, loader}, pinned?, fromPack? }`.
+- **content.json** (per instance): `files["mods/x.jar"] = { source, projectId, versionId, title, versionName, icon, projectUrl, fileUrl, sha1, meta: {modId, name, version, loader, environment?}, sides?: {client, server} (Modrinth client_side/server_side), pinned?, fromPack? }`. `listContent()` adds `clientOnly` (jar `environment` = client, or Modrinth server_side = unsupported).
 
 ## Rules — don't break these
 
