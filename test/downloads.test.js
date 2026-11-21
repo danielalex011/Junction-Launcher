@@ -374,3 +374,15 @@ test('CurseForge packs: flaky downloads are retried, blocked files go to the man
   assert.deepEqual(fs.readFileSync(path.join(gd, 'mods/cfb.jar')), jarB);
   assert.deepEqual(rep.failed, []);
 });
+
+test('pack install: the task knows the total size before the first file downloads', async () => {
+  const api = flakyPack();
+  const ctx = await makeCtx(api.routes);
+  const { modpacks } = services(ctx);
+  let planned = null;
+  await ctx.tasks.run('Installing Pack', async (t) => {
+    await modpacks.installFromSource({ source: 'modrinth', projectId: 'PACK', versionId: 'pv1', report: t.update });
+    planned = ctx.tasks.list().find((x) => x.id === t.id)?.plannedBytes;
+  });
+  assert.equal(planned, Object.values(api.jars).reduce((n, b) => n + b.length, 0));
+});
