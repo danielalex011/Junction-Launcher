@@ -383,7 +383,7 @@ async function renderLibrary(_p, token) {
       h('div', { class: 'row wrap' },
         h('button', { class: 'btn primary lg', type: 'button', onclick: () => newInstanceDialog() }, icon('plus'), 'Create an instance'),
         h('button', { class: 'btn lg', type: 'button', onclick: () => go('browse', { type: 'modpack' }) }, icon('box'), 'Browse modpacks'),
-        h('button', { class: 'btn lg', type: 'button', onclick: () => importFolderDialog() }, icon('login'), 'Import from another launcher')));
+        h('button', { class: 'btn lg', type: 'button', onclick: () => importFromLaunchers() }, icon('login'), 'Import from another launcher')));
   } else {
     body = h('div', { class: 'grid' }, list.map((inst) => h('div', { class: 'card', onclick: () => go('instance', { id: inst.id }) },
       h('div', { class: 'c-top' }, avatar(inst),
@@ -402,7 +402,7 @@ async function renderLibrary(_p, token) {
 function importMenu(anchor) {
   popupMenu(anchor, [
     { label: 'Modpack file (.mrpack / CurseForge .zip)', icon: 'file', onClick: () => importPackFile() },
-    { label: 'Instance from another launcher…', icon: 'folder', onClick: () => importFolderDialog() },
+    { label: 'Instances from other launchers…', icon: 'folder', onClick: () => importFromLaunchers() },
   ]);
 }
 
@@ -505,11 +505,103 @@ async function newInstanceDialog(preset = {}) {
 }
 
 // ---------------------------------------------------------------- import from another launcher
-async function importFolderDialog() {
-  let info;
+async function importFromLaunchers() {
+  const listBox = h('div', { style: { display: 'flex', flexDirection: 'column', gap: '14px' } }, loading('Looking for instances in Modrinth App, CurseForge, Prism and the Minecraft Launcher…'));
+  const selected = new Map();
+  let busy = false;
+  const m = modal({
+    title: 'Import from other launchers',
+    body: [
+      h('div', { class: 'hint' }, 'Files are copied into Junction, so your other launcher keeps working exactly as before. Mods are matched against Modrinth and CurseForge so they can be updated from here.'),
+      listBox,
+    ],
+    actions: [
+      { label: 'Browse for a folder…', class: 'ghost', icon: 'folder', onClick: () => { setTimeout(() => importFolderDialog(), 0); } },
+      { label: 'Import selected', class: 'primary', icon: 'download', disabled: true, onClick: async (btn) => { await runImport(btn); return busy; } },
+    ],
+    onClose: () => { /* imports already started keep running in the task panel */ },
+  });
+  m.el.style.width = 'min(760px, 100%)';
+  const importBtn = m.el.querySelectorAll('.m-foot .btn')[1];
+  const refreshBtn = () => {
+    importBtn.disabled = busy || selected.size === 0;
+    importBtn.replaceChildren(icon('download'), selected.size ? `Import ${selected.size} instance${selected.size > 1 ? 's' : ''}` : 'Import selected');
+  };
+
+  async function runImport() {
+    busy = true;
+    const items = [...selected.values()];
+    let ok = 0;
+    for (let i = 0; i < items.length; i++) {
+      const info = items[i];
+      importBtn.replaceChildren(h('div', { class: 'spinner' }), `Importing ${i + 1} of ${items.length}…`);
+      try {
+        await call('import:run', info, { name: info.name, mcVersion: info.mcVersion, loader: info.loader, loaderVersion: info.loaderVersion });
+        ok++;
+      } catch (e) {
+        toast(`${info.name}: ${e.message}`, 'error');
+      }
+    }
+    busy = false;
+    toast(`Imported ${ok} of ${items.length} instance${items.length > 1 ? 's' : ''}`, ok ? 'good' : 'error');
+    m.close();
+    go('library');
+  }
+
+  let found;
   try {
-    info = await call('import:pickFolder');
-  } catch (e) { toast(e.message, 'error'); return; }
+    found = await call('import:scan');
+  } catch (e) {
+    listBox.replaceChildren(h('div', { class: 'notice warn' }, icon('alert'), e.message));
+    return;
+  }
+  if (!found.length) {
+    listBox.replaceChildren(h('div', { class: 'empty', style: { padding: '36px 20px' } },
+      h('h2', null, 'No instances found'),
+      h('div', null, 'Nothing in the usual Modrinth App, CurseForge, Prism or Minecraft Launcher folders. If you moved them, use “Browse for a folder…”.')));
+    return;
+  }
+  const groups = new Map();
+  for (const f of found) {
+    if (!groups.has(f.launcher)) groups.set(f.launcher, []);
+    groups.get(f.launcher).push(f);
+  }
+  const rows = [];
+  listBox.replaceChildren(...[...groups.entries()].map(([launcher, list]) => {
+    const newOnes = list.filter((f) => f.mcVersion && !f.alreadyImported);
+    const selAll = h('button', { class: 'btn ghost sm', type: 'button', onclick: () => {
+      const allOn = newOnes.every((f) => selected.has(f.folder));
+      for (const f of newOnes) { if (allOn) selected.delete(f.folder); else selected.set(f.folder, f); }
+      for (const r of rows) r();
+      refreshBtn();
+    } }, 'Select all new');
+    return h('div', null,
+      h('div', { class: 'row', style: { marginBottom: '6px' } }, h('b', { class: 'grow' }, `${launcher}`, h('span', { class: 'muted small' }, ` · ${list.length} found`)), newOnes.length > 1 ? selAll : null),
+      h('div', { class: 'list' }, list.map((f) => {
+        const box = h('input', { type: 'checkbox', disabled: !f.mcVersion, onchange: (e) => { if (e.target.checked) selected.set(f.folder, f); else selected.delete(f.folder); refreshBtn(); } });
+        rows.push(() => { box.checked = selected.has(f.folder); });
+        const loaderTxt = f.loader && f.loader !== 'vanilla' ? `${LOADER[f.loader] || f.loader}${f.loaderVersion ? ` ${f.loaderVersion}` : ''}` : (f.loader === 'vanilla' ? 'Vanilla' : 'Unknown loader');
+        return h('label', { class: 'item', style: { gridTemplateColumns: '22px 34px 1fr auto', cursor: f.mcVersion ? 'pointer' : 'default' } },
+          box,
+          avatar({ name: f.name }, 'sm'),
+          h('div', { style: { minWidth: 0 } },
+            h('div', { class: 'i-title ellipsis', title: f.folder }, f.name),
+            h('div', { class: 'i-file ellipsis' }, `${loaderTxt} · ${f.mcVersion ? `Minecraft ${f.mcVersion}` : 'version unknown'} · ${f.modCount} mod${f.modCount === 1 ? '' : 's'}${f.exact || f.from !== 'folder' ? '' : ' · guessed'}`)),
+          h('div', { class: 'row' },
+            f.alreadyImported ? h('span', { class: 'badge plain', title: 'You imported this before. Importing again makes a second copy.' }, 'Already imported') : null,
+            h('button', { class: `btn sm ${f.mcVersion ? 'ghost' : ''}`, type: 'button', onclick: (e) => { e.preventDefault(); e.stopPropagation(); m.close(); importFolderDialog(f); } }, f.mcVersion ? 'Edit…' : 'Set version…')));
+      })));
+  }));
+  refreshBtn();
+}
+
+async function importFolderDialog(preset = null) {
+  let info = preset;
+  if (!info) {
+    try {
+      info = await call('import:pickFolder');
+    } catch (e) { toast(e.message, 'error'); return; }
+  }
   if (!info) return;
   const versions = await loadMcVersions(true);
   let mc = info.mcVersion || '';
@@ -533,7 +625,7 @@ async function importFolderDialog() {
     title: 'Import instance',
     body: [
       h('div', { class: 'notice info' }, icon('info'), h('div', null,
-        h('div', null, `Detected: ${info.from}`),
+        h('div', null, `From: ${info.from}`),
         h('div', { class: 'hint' }, `${info.modCount} files in mods · ${info.gameDir}`))),
       h('label', { class: 'field' }, 'Name', name),
       h('div', { class: 'form-grid' },

@@ -71,12 +71,13 @@ Offline accounts (for singleplayer/LAN) unlock once you've added a Microsoft acc
 - **Instance → Add mods**: opens Browse locked to that instance's version and loader. **Install** picks the newest compatible release. Open a project to choose a specific version, or to switch between its Modrinth and CurseForge pages.
 - **Check for updates / Update all**: checks both sites. Pinned files are skipped.
 - **⋯ → Export**: choose which folders to include (mods, config, kubejs, options.txt…).
-- **Import**: drop a `.mrpack` or CurseForge `.zip` onto the window, or use *Import → Instance from another launcher* and pick the instance folder:
-  - CurseForge app: `…\curseforge\minecraft\Instances\<name>`
-  - Modrinth App: `%APPDATA%\ModrinthApp\profiles\<name>`
-  - Prism/MultiMC: the instance folder
+- **Import**: drop a `.mrpack` or CurseForge `.zip` onto the window, or use *Import → Instances from other launchers*. Junction finds your instances automatically in:
+  - Modrinth App (it reads Modrinth App's own database for the exact version and loader)
+  - the CurseForge app
+  - Prism / PolyMC, GDLauncher and ATLauncher
+  - the official Minecraft Launcher's profiles
 
-  Your original folder is copied, never modified.
+  Tick the ones you want and import them in one go. If you moved a launcher's folder, use *Browse for a folder…*. Originals are copied, never modified.
 - **Settings tab of an instance**: memory, Java path, JVM arguments (with Generational ZGC and tuned G1 presets), window size, and *Join server on launch*.
 - **Modpack instances**: *⋯ → Check for modpack update*. Mods the pack installed are replaced, mods you added yourself are kept, and `config/` is backed up to `backups/` first.
 
@@ -107,11 +108,11 @@ npm run dist:linux   # AppImage
 ```bash
 npm test
 ```
-32 tests run against a fake Mojang/Fabric/Modrinth/CurseForge/Microsoft. They cover the full install → launch path (spawning a stand-in Java), dependencies across sites, duplicate detection, blocked-download pickup, modpack import/export round trips, path-traversal rejection, the Forge/NeoForge headless installer and Microsoft sign-in.
+36 tests run against a fake Mojang/Fabric/Modrinth/CurseForge/Microsoft. They cover the full install → launch path (spawning a stand-in Java), dependencies across sites, duplicate detection, blocked-download pickup, modpack import/export round trips, path-traversal rejection, the Forge/NeoForge headless installer and Microsoft sign-in.
 
 ## Known limitations
 - **Forge for Minecraft older than 1.13** uses legacy installers that can't run headless, so it isn't supported. Fabric/Quilt/vanilla work for old versions.
-- Imports from the current Modrinth App read the folder (mods, config, saves) rather than its database. The version and loader are guessed from the mods and the folder name, and you confirm them before importing.
+- Launchers installed to a non-default folder aren't found automatically. Use *Browse for a folder…* for those.
 - The test suite runs against recorded API shapes, not the live services. If a site changes its API, the first real run is where that shows up. Errors are shown in the task panel bottom-left.
 - No skin manager or instance groups yet.
 

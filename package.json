@@ -1,6 +1,6 @@
 {
   "name": "junction-launcher",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "A Minecraft launcher that installs mods and modpacks from both Modrinth and CurseForge. No ads, no telemetry.",
   "main": "src/main/main.js",
   "scripts": {
@@ -14,7 +14,8 @@
   "license": "MIT",
   "dependencies": {
     "adm-zip": "^0.6.1",
-    "marked": "^18.2.1"
+    "marked": "^18.2.1",
+    "sql.js": "^1.17.0"
   },
   "devDependencies": {
     "electron": "^45.4.1",
@@ -29,7 +30,9 @@
     },
     "files": [
       "src/**/*",
-      "package.json"
+      "package.json",
+      "!node_modules/sql.js/dist/!(sql-wasm.js|sql-wasm.wasm)",
+      "!node_modules/sql.js/{documentation,examples,coverage}/**"
     ],
     "win": {
       "target": [

@@ -12,7 +12,7 @@ const { ContentManager } = require('../core/content/manager');
 const { Modpacks } = require('../core/content/modpacks');
 const { BlockedWatcher } = require('../core/content/blocked');
 const { exportMrpack, exportCurseForge, exportableEntries } = require('../core/content/export');
-const { detectInstance, importInstance } = require('../core/content/importer');
+const { detectInstance, importInstance, scanLaunchers } = require('../core/content/importer');
 const { listGameVersions } = require('../core/minecraft/versions');
 const { listLoaderVersions, pickDefault, LOADER_NAMES } = require('../core/loaders');
 const { prepareInstance, launch } = require('../core/minecraft/launch');
@@ -254,6 +254,17 @@ function registerIpc() {
     if (r.canceled) return null;
     return detectInstance(r.filePaths[0]);
   });
+  handle('import:scan', async () => {
+    const [found, mine] = await Promise.all([scanLaunchers(), instances.list()]);
+    const imported = new Set(mine.map((i) => i.importedFrom).filter(Boolean).map((p) => path.resolve(p)));
+    // Instances imported before Junction recorded the source folder: match on name + version.
+    const byName = new Set(mine.map((i) => `${i.name.toLowerCase()}|${i.mcVersion}`));
+    return found.map((f) => ({
+      ...f,
+      alreadyImported: imported.has(path.resolve(f.folder)) || byName.has(`${String(f.name).toLowerCase()}|${f.mcVersion}`),
+    }));
+  });
+  handle('import:detect', async (folder) => detectInstance(folder));
   handle('import:run', async (info, choices) => ctx.tasks.run(`Importing ${choices.name || info.name}`, (t) => importInstance({ instances, content }, info, choices, t.update)));
 
   // --- accounts
