@@ -227,6 +227,24 @@ class Instances {
     return out.sort((a, b) => a.title.localeCompare(b.title));
   }
 
+  /**
+   * Every mod in every instance, from the saved content.json files only (no jar is opened), for the quick search.
+   * An instance whose mods have never been listed has no entries yet.
+   */
+  async modIndex() {
+    const out = [];
+    for (const inst of await this.list()) {
+      const idx = await this.readIndex(inst.id).catch(() => null);
+      for (const [rel, e] of Object.entries(idx?.files || {})) {
+        if (!rel.startsWith('mods/')) continue;
+        const title = e.title || e.meta?.name || path.basename(rel).replace(/\.(jar|zip)$/i, '');
+        const v = e.versionName || (e.meta?.version && !String(e.meta.version).includes('${') ? e.meta.version : '');
+        out.push({ instanceId: inst.id, instanceName: inst.name, file: rel, title, version: String(v || '') });
+      }
+    }
+    return out;
+  }
+
   contentPath(id, rel, enabled = true) {
     const full = safeJoin(this.gameDir(id), rel);
     return enabled ? full : `${full}.disabled`;

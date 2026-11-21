@@ -35,7 +35,11 @@ function renderNav() {
     class: `nav-btn ${state.view === n.id || (n.id === 'library' && state.view === 'instance') ? 'active' : ''}`,
     type: 'button',
     onclick: () => go(n.id),
-  }, icon(n.icon, 18), n.label)));
+  }, icon(n.icon, 18), h('span', { class: 'nav-label' }, n.label))));
+  for (const b of nav.children) b.title = b.textContent;
+  const qs = $('#qs-btn');
+  qs.replaceChildren(icon('search', 16), h('span', { class: 'nav-label grow' }, 'Search'), h('kbd', { class: 'nav-label' }, 'Ctrl K'));
+  qs.onclick = () => openQuickSearch();
 }
 
 let renderToken = 0;
@@ -73,6 +77,10 @@ window.addEventListener('drop', async (e) => {
   }
 });
 
+window.addEventListener('keydown', (e) => {
+  if ((e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey && e.key.toLowerCase() === 'k') { e.preventDefault(); openQuickSearch(); }
+});
+
 on('app:openFiles', (files) => { for (const f of files) importPackFile(f); });
 
 (async function init() {
@@ -82,6 +90,7 @@ on('app:openFiles', (files) => { for (const f of files) importPackFile(f); });
   } catch (e) {
     toast(e.message, 'error');
   }
+  applyAppearance();
   renderNav();
   renderAccountChip();
   go('home');

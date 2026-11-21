@@ -73,7 +73,7 @@ function openActivity() {
   activityUi.open = true;
   const b = activityUi.refs.btn.getBoundingClientRect();
   const el = activityUi.panelEl;
-  el.style.left = `${b.left}px`;
+  el.style.left = `${Math.max(8, Math.min(b.left, window.innerWidth - Math.min(420, window.innerWidth - 24) - 8))}px`; // stays on screen when the sidebar is on the right
   el.style.bottom = `${window.innerHeight - b.top + 8}px`;
   el.hidden = false;
   activityUi.refs.btn.classList.add('open');

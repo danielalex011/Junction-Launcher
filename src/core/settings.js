@@ -1,5 +1,6 @@
 'use strict';
 const { readJson, writeJson, totalMemMB } = require('./util');
+const { DEFAULT_APPEARANCE, normalizeAppearance } = require('./appearance');
 
 const SECRET_KEYS = ['cfApiKey'];
 
@@ -19,6 +20,7 @@ function defaults() {
     includeOptionalPackFiles: true,
     updateChannel: 'alpha', // newest of: release | beta | alpha
     confirmBeforeDelete: true,
+    appearance: { ...DEFAULT_APPEARANCE }, // accent, background, corners, sidebar, size (see appearance.js)
     showNews: true, // Minecraft news carousel on Home
     cfApiBase: 'https://api.curseforge.com',
   };
@@ -38,6 +40,7 @@ class Settings {
     const raw = await readJson(this.file, {});
     this.data = { ...defaults(), ...(raw.settings || {}) };
     this.data.sources = { ...defaults().sources, ...(raw.settings?.sources || {}) };
+    this.data.appearance = normalizeAppearance(raw.settings?.appearance);
     this.secrets = raw.secrets || {};
     this.plain = {};
     for (const k of SECRET_KEYS) {
@@ -74,6 +77,8 @@ class Settings {
           this.plain[k] = String(v).trim();
           this.secrets[k] = await this.crypto.encrypt(this.plain[k]);
         }
+      } else if (k === 'appearance') {
+        this.data.appearance = normalizeAppearance({ ...this.data.appearance, ...(v || {}) });
       } else if (k in defaults() || k === 'sources') {
         this.data[k] = v;
       }

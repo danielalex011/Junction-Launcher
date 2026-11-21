@@ -12,6 +12,7 @@ async function renderBrowse(params, token) {
     inst = await call('inst:get', params.instanceId).catch(() => null);
   }
   if (params.type) browseState.type = params.type;
+  if (typeof params.query === 'string') browseState.query = params.query; // from the quick search's "Search Browse for…" row
   if (inst) {
     browseState.gameVersion = inst.mcVersion;
     browseState.loader = browseState.type === 'mod' ? (inst.loader?.type === 'vanilla' ? '' : inst.loader?.type) : '';

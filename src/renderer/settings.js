@@ -40,9 +40,11 @@ async function renderSettings(_p, token) {
     toast('Settings saved', 'good');
     go('settings');
   };
+  if (_p?.section) setTimeout(() => document.getElementById(_p.section)?.scrollIntoView({ block: 'start' }), 50);
   const link = (label, url) => h('a', { href: '#', onclick: (e) => { e.preventDefault(); call('shell:open', url); } }, label);
   view().replaceChildren(h('div', { class: 'page', style: { maxWidth: '900px' } },
     h('div', { class: 'page-head' }, h('h1', null, 'Settings'), h('button', { class: 'btn primary', type: 'button', onclick: () => save().catch((e) => toast(e.message, 'error')) }, icon('check'), 'Save')),
+    appearanceSection(),
     h('div', { class: 'section' }, h('h3', null, 'Microsoft sign-in'),
       s.builtin_msClientId
         ? h('p', null, 'Sign-in works out of the box: you sign in on Microsoft\'s own page, so your password never touches Junction.')

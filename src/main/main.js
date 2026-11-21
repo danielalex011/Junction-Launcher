@@ -10,6 +10,7 @@ const { Accounts } = require('../core/auth/accounts');
 const { Instances, isLinkedPack } = require('../core/instances');
 const { createSources, searchAll, compatibleLoaders } = require('../core/sources');
 const { News } = require('../core/news');
+const { DEFAULT_APPEARANCE, BG_FILE } = require('../core/appearance');
 const { Home } = require('../core/home');
 const { composeHead } = require('../core/skin');
 const { Skins } = require('../core/skins');
@@ -30,6 +31,7 @@ const { HttpError, describeError } = require('../core/http');
 
 const VERSION = require('../../package.json').version;
 let win = null;
+const bgDir = () => path.join(ctx.root, 'appearance'); // the chosen background picture (copied here)
 let ctx; let accounts; let skins; let instances; let sources; let content; let modpacks; let home; let news; let packlink; let errorLog;
 const running = new Map();
 const blockedSessions = new Map();
@@ -38,6 +40,7 @@ let pendingOpenFiles = [];
 // Instance pictures stored on disk are shown through junction-icon://<instance-id>/
 protocol.registerSchemesAsPrivileged([
   { scheme: 'junction-icon', privileges: { standard: true, secure: true, supportFetchAPI: true } },
+  { scheme: 'junction-bg', privileges: { standard: true, secure: true, supportFetchAPI: true } }, // the chosen background picture: junction-bg://bg/?v=<n>
   { scheme: 'junction-skin', privileges: { standard: true, secure: true, supportFetchAPI: true } }, // account heads: junction-skin://<account-id>/
 ]);
 
@@ -283,6 +286,24 @@ function registerIpc() {
   const homeView = (d) => ({ ...d, recent: d.recent.map(withState), updates: d.updates.map((u) => ({ ...u, iconSrc: withState({ ...u, id: u.instanceId }).iconSrc })) });
   // Cached update info for the badges on instance cards (no network): { [instanceId]: { count, pack: versionName|null } }
   handle('home:badges', async () => Object.fromEntries((await home.state()).updates.map((u) => [u.instanceId, { count: u.count, pack: u.pack ? u.pack.versionName : null, packVersionId: u.pack ? u.pack.versionId : null }])));
+  handle('quick:mods', async () => instances.modIndex());
+  // ---- appearance: the background picture lives in <data>/appearance (copied there, never linked)
+  const dropBackgrounds = () => { try { for (const f of fs.readdirSync(bgDir())) if (BG_FILE.test(f)) fs.rmSync(path.join(bgDir(), f), { force: true }); } catch { /* nothing there yet */ } };
+  handle('appearance:pickBackground', async () => {
+    const r = await dialog.showOpenDialog(win, { properties: ['openFile'], filters: [{ name: 'Pictures', extensions: ['png', 'jpg', 'jpeg', 'webp', 'gif'] }] });
+    if (r.canceled || !r.filePaths[0]) return null;
+    const src = r.filePaths[0];
+    const ext = path.extname(src).toLowerCase().replace('.jpeg', '.jpg');
+    const st = fs.statSync(src);
+    if (!st.isFile() || st.size > 25 * 1024 * 1024) throw new Error('Pick a picture under 25 MB (PNG, JPG, WebP or GIF).');
+    fs.mkdirSync(bgDir(), { recursive: true });
+    dropBackgrounds();
+    fs.copyFileSync(src, path.join(bgDir(), `background${ext}`));
+    return ctx.settings.update({ appearance: { backgroundFile: `background${ext}`, backgroundVersion: Date.now() } });
+  });
+  handle('appearance:clearBackground', async () => { dropBackgrounds(); return ctx.settings.update({ appearance: { backgroundFile: null } }); });
+  handle('appearance:reset', async () => { dropBackgrounds(); return ctx.settings.update({ appearance: { ...DEFAULT_APPEARANCE } }); });
+  handle('appearance:zoom', async (pct) => { win?.webContents.setZoomFactor(Math.min(1.25, Math.max(0.9, Number(pct) / 100 || 1))); });
   handle('news:get', async () => news.state());
   handle('news:refresh', async (opts) => news.refresh(opts || {}));
   handle('home:state', async () => homeView(await home.state()));
@@ -648,6 +669,11 @@ app.whenReady().then(async () => {
     const file = /^[a-z0-9-]+$/.test(id) ? await instances.iconFile(id) : null;
     if (!file) return new Response('not found', { status: 404 });
     return net.fetch(pathToFileURL(file).toString());
+  });
+  protocol.handle('junction-bg', async () => {
+    const f = ctx.settings.get('appearance')?.backgroundFile;
+    if (!f || !BG_FILE.test(f)) return new Response('not found', { status: 404 });
+    return net.fetch(pathToFileURL(path.join(bgDir(), f)).toString());
   });
   protocol.handle('junction-skin', async (req) => {
     const id = new URL(req.url).hostname;
