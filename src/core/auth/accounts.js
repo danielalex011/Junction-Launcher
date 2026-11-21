@@ -228,15 +228,10 @@ class Accounts {
     return { id: acc.id, name: acc.name, uuid: acc.uuid, type: 'msa' };
   }
 
-  /** Returns launch credentials for the active account, refreshing tokens if needed. */
-  async launchCredentials() {
-    const acc = this.data.accounts.find((a) => a.id === this.data.active);
-    if (!acc) throw new AuthError('Add an account first: click the account at the bottom left.', 'NO_ACCOUNT');
-    if (acc.type === 'offline') {
-      return { name: acc.name, uuid: acc.uuid, accessToken: '0', userType: 'legacy', xuid: '0', offline: true };
-    }
+  /** The Minecraft access token for an account, refreshing the Microsoft sign-in first when it is (nearly) expired. */
+  async freshMcToken(acc, { force = false } = {}) {
     const dec = (s) => this.ctx.crypto.decrypt(s);
-    if (!acc.mcToken || !acc.mcTokenExpires || acc.mcTokenExpires - Date.now() < 10 * 60 * 1000) {
+    if (force || !acc.mcToken || !acc.mcTokenExpires || acc.mcTokenExpires - Date.now() < 10 * 60 * 1000) {
       const client_id = this.clientId();
       const res = await this.ctx.http.fetch(`${MS}/token`, {
         method: 'POST',
@@ -259,7 +254,28 @@ class Accounts {
       await this.save();
       this.saveSkin(acc, mc.profile); // in the background; a slow skin server must not delay the game
     }
-    return { name: acc.name, uuid: acc.uuid, accessToken: await dec(acc.mcToken), userType: 'msa', xuid: acc.xuid || '0', offline: false };
+    return dec(acc.mcToken);
+  }
+
+  /** Returns launch credentials for the active account, refreshing tokens if needed. */
+  async launchCredentials() {
+    const acc = this.data.accounts.find((a) => a.id === this.data.active);
+    if (!acc) throw new AuthError('Add an account first: click the account at the bottom left.', 'NO_ACCOUNT');
+    if (acc.type === 'offline') {
+      return { name: acc.name, uuid: acc.uuid, accessToken: '0', userType: 'legacy', xuid: '0', offline: true };
+    }
+    const accessToken = await this.freshMcToken(acc);
+    return { name: acc.name, uuid: acc.uuid, accessToken, userType: 'msa', xuid: acc.xuid || '0', offline: false };
+  }
+
+  get(id) { return this.data.accounts.find((a) => a.id === id) || null; }
+
+  /** After a skin was reset: forget the cached skin so the letter avatar shows again. */
+  async clearSkin(acc) {
+    for (const f of [this.skinFile(acc.id), this.headFile(acc.id)]) fs.rmSync(f, { force: true });
+    delete acc.skinUrl;
+    acc.skinAt = 0;
+    await this.save();
   }
 }
 

@@ -183,6 +183,8 @@ const twinCf = () => ({
 const TEAM_OWNERS = { 'team-AANobbMI': 'jellysquid3', 'team-gvQqBUqZ': 'jellysquid3', 'team-YL57xq9U': 'coderbot', 'team-uCdwusMi': 'jeseibel', 'team-OLDTW': 'tweakmaster', 'team-BCAVE': 'YUNGNICKYOUNG', 'team-ZOOMR': 'isXander', 'team-lantern': 'LanternTeam' };
 
 module.exports = async (url, opts = {}) => {
+  const skinRes = await require('./mock-skins').handle(url, opts);
+  if (skinRes) return skinRes;
   // Lantern Pack
   if (url === 'https://api.modrinth.com/v2/project/LANTERN') return json(lanProject);
   if (url.startsWith('https://api.modrinth.com/v2/project/LANTERN/version')) return json([lanVersion('4.2.0'), lanVersion('4.1.9')]);

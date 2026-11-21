@@ -1,6 +1,6 @@
 {
   "name": "junction-launcher",
-  "version": "0.1.27",
+  "version": "0.1.28",
   "description": "A Minecraft launcher that installs mods and modpacks from both Modrinth and CurseForge. No ads, no telemetry.",
   "main": "src/main/main.js",
   "scripts": {
@@ -21,7 +21,8 @@
   },
   "devDependencies": {
     "electron": "^45.4.1",
-    "electron-builder": "^26.18.0"
+    "electron-builder": "^26.18.0",
+    "skinview3d": "^3.4.2"
   },
   "productName": "Junction",
   "build": {

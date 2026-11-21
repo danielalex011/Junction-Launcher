@@ -25,6 +25,7 @@ const NAV = [
   { id: 'home', label: 'Home', icon: 'home' },
   { id: 'library', label: 'Library', icon: 'grid' },
   { id: 'browse', label: 'Browse', icon: 'compass' },
+  { id: 'skins', label: 'Skins', icon: 'shirt' },
   { id: 'settings', label: 'Settings', icon: 'sliders' },
 ];
 
@@ -39,12 +40,13 @@ function renderNav() {
 
 let renderToken = 0;
 async function go(viewName, params = {}) {
+  if (state.view === 'skins' && viewName !== 'skins') skinsLeave();
   state.view = viewName;
   state.params = params;
   renderNav();
   const token = ++renderToken;
   view().scrollTop = 0;
-  const pages = { home: renderHome, library: renderLibrary, instance: renderInstance, browse: renderBrowse, settings: renderSettings };
+  const pages = { home: renderHome, library: renderLibrary, instance: renderInstance, browse: renderBrowse, skins: renderSkins, settings: renderSettings };
   try {
     await pages[viewName](params, token);
   } catch (e) {
@@ -55,7 +57,7 @@ const stale = (token) => token !== renderToken;
 
 // ---------------------------------------------------------------- drag & drop, startup
 let dragDepth = 0;
-window.addEventListener('dragenter', (e) => { if (e.dataTransfer?.types?.includes('Files')) { dragDepth++; document.body.classList.add('dragging'); } });
+window.addEventListener('dragenter', (e) => { if (e.dataTransfer?.types?.includes('Files')) { $('#drop-hint').textContent = state.view === 'skins' ? 'Drop a skin (64×64 PNG) to add it to your wardrobe' : 'Drop a .mrpack or CurseForge .zip to import it'; dragDepth++; document.body.classList.add('dragging'); } });
 window.addEventListener('dragleave', () => { dragDepth = Math.max(0, dragDepth - 1); if (!dragDepth) document.body.classList.remove('dragging'); });
 window.addEventListener('dragover', (e) => e.preventDefault());
 window.addEventListener('drop', async (e) => {
@@ -64,6 +66,7 @@ window.addEventListener('drop', async (e) => {
   document.body.classList.remove('dragging');
   const files = [...(e.dataTransfer?.files || [])].map((f) => window.junction.pathForFile(f)).filter(Boolean);
   for (const f of files) {
+    if (/\.png$/i.test(f) && state.view === 'skins') { await skinsAddFromPath(f); continue; }
     if (/\.(png|jpe?g|webp|gif)$/i.test(f) && state.view === 'instance' && currentInstance) { await changeIcon(currentInstance, f); continue; }
     if (/\.(mrpack|zip)$/i.test(f)) await importPackFile(f);
     else toast('Drop a .mrpack or CurseForge .zip to import it, or an image on an instance page to use it as its picture.', 'warn');

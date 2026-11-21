@@ -447,3 +447,46 @@ kbd { background: var(--panel-3); border-radius: 4px; padding: 1px 6px; font-siz
 .ps-row:first-child { border-top: 0; }
 .ps-choice { display: flex; gap: 10px; align-items: flex-start; padding: 10px 12px; border: 1px solid var(--border); border-radius: var(--radius); cursor: pointer; }
 .ps-choice:has(input:checked) { border-color: var(--accent); background: rgba(142,162,255,.07); }
+
+/* ---------- skins ---------- */
+.skins-layout { display: grid; grid-template-columns: 340px minmax(0, 1fr); gap: 20px; align-items: start; }
+.sk-stage { position: sticky; top: 0; display: flex; flex-direction: column; gap: 12px; background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius); padding: 16px; }
+.sk-view { position: relative; display: flex; justify-content: center; border-radius: var(--radius-sm); background: radial-gradient(ellipse at 50% 38%, #272d3b 0%, var(--panel-2) 62%, var(--panel) 100%); border: 1px solid var(--border); }
+.sk-canvas { display: block; cursor: grab; max-width: 100%; touch-action: none; }
+.sk-canvas:active { cursor: grabbing; }
+.sk-drag-hint { position: absolute; bottom: 8px; left: 0; right: 0; text-align: center; font-size: 11px; color: var(--faint); pointer-events: none; }
+.sk-flat { display: flex; align-items: center; justify-content: center; min-height: 400px; }
+.sk-title { font-weight: 700; font-size: 16px; }
+.sk-controls { display: flex; flex-direction: column; gap: 10px; }
+.sk-controls .notice { margin: 0; font-size: 13px; line-height: 1.45; }
+.sk-tools { justify-content: space-between; flex-wrap: wrap; }
+.btn.on { background: var(--panel-3); color: var(--text); }
+.sk-switch { max-width: 240px; }
+.sk-switch .ellipsis { max-width: 160px; }
+.sk-side { display: flex; flex-direction: column; min-width: 0; }
+.sk-side .section { margin-bottom: 16px; }
+.sk-head { margin-bottom: 14px; gap: 8px; align-items: flex-start; }
+.sk-head h3 { margin-bottom: 2px; }
+.sk-front { image-rendering: pixelated; display: block; }
+.sk-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 12px; }
+.sk-card { background: var(--panel-2); border: 1px solid var(--border); border-radius: var(--radius); padding: 10px; display: flex; flex-direction: column; gap: 6px; cursor: pointer; min-width: 0; transition: border-color .12s; }
+.sk-card:hover { border-color: #3a4252; }
+.sk-card:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.sk-card.sel { border-color: var(--accent); background: rgba(142,162,255,.07); }
+.sk-thumb { display: flex; justify-content: center; align-items: center; padding: 8px 0; border-radius: var(--radius-sm); background: var(--panel); }
+.sk-thumb.big { padding: 14px 22px; }
+.sk-name { font-weight: 700; font-size: 13px; }
+.sk-meta { display: flex; align-items: center; justify-content: space-between; gap: 6px; min-height: 20px; }
+.sk-actions { display: flex; justify-content: space-between; gap: 6px; margin-top: 2px; }
+.sk-empty { color: var(--muted); font-size: 13px; padding: 22px; text-align: center; border: 1px dashed var(--border); border-radius: var(--radius); }
+.sk-cape-row { display: flex; flex-wrap: wrap; gap: 10px; }
+.sk-cape { display: flex; flex-direction: column; align-items: center; gap: 6px; width: 92px; padding: 10px 6px 8px; background: var(--panel-2); border: 1px solid var(--border); border-radius: var(--radius); cursor: pointer; color: var(--muted); font-size: 12px; font-weight: 600; }
+.sk-cape:hover:not(:disabled) { border-color: #3a4252; color: var(--text); }
+.sk-cape.on { border-color: var(--accent); background: rgba(142,162,255,.07); color: var(--text); }
+.sk-cape:disabled { cursor: progress; opacity: .7; }
+.sk-cape .sk-cape-name { max-width: 100%; }
+.sk-cape-none { width: 40px; height: 64px; display: flex; align-items: center; justify-content: center; border: 1px dashed var(--border); border-radius: 4px; color: var(--faint); }
+.sk-add { display: flex; gap: 22px; align-items: flex-start; }
+.sk-add-form { display: flex; flex-direction: column; gap: 16px; flex: 1; min-width: 220px; }
+@media (max-width: 1000px) { .skins-layout { grid-template-columns: 1fr; } .sk-stage { position: static; } }
+@media (min-width: 1820px) { .skins-layout { grid-template-columns: 380px minmax(0, 1fr); } .sk-grid { grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); } }

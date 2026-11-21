@@ -74,7 +74,7 @@ async function seedLinkedPack(dir) {
   fs.writeFileSync(path.join(instances.instDir(a.id), 'content.json'), JSON.stringify(idx));
   // A signed-in account whose skin is on the mock texture server, and an offline one (letter avatar).
   fs.writeFileSync(ctx.paths.accountsFile, JSON.stringify({ active: 'msa-demo', accounts: [
-    { id: 'msa-demo', type: 'msa', name: 'DemoPlayer', uuid: 'demo', ownsGame: true, skinUrl: 'https://textures.minecraft.net/texture/demo-skin' },
+    { id: 'msa-demo', type: 'msa', name: 'DemoPlayer', uuid: 'demo', ownsGame: true, mcToken: 'b64:bW9jay10b2tlbg==', mcTokenExpires: Date.now() + 1e10, skinUrl: 'https://textures.minecraft.net/texture/demo-skin' },
     { id: 'offline-steve', type: 'offline', name: 'Steve', uuid: 'steve' },
   ] }));
   await seedLinkedPack(dir);

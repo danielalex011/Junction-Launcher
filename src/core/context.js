@@ -20,6 +20,7 @@ async function createContext(root, { crypto, fetchImpl, builtins = {} } = {}) {
     instances: path.join(root, 'instances'),
     cache: path.join(root, 'cache'),
     skins: path.join(root, 'skins'),
+    wardrobe: path.join(root, 'wardrobe'),
     settingsFile: path.join(root, 'settings.json'),
     accountsFile: path.join(root, 'accounts.json'),
     tasksFile: path.join(root, 'activity.json'),

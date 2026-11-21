@@ -11,6 +11,7 @@ const { Instances, isLinkedPack } = require('../core/instances');
 const { createSources, searchAll, compatibleLoaders } = require('../core/sources');
 const { Home } = require('../core/home');
 const { composeHead } = require('../core/skin');
+const { Skins } = require('../core/skins');
 const { compareSources } = require('../core/sources/choose');
 const { ContentManager } = require('../core/content/manager');
 const { Modpacks } = require('../core/content/modpacks');
@@ -27,7 +28,7 @@ const { HttpError, describeError } = require('../core/http');
 
 const VERSION = require('../../package.json').version;
 let win = null;
-let ctx; let accounts; let instances; let sources; let content; let modpacks; let home; let packlink;
+let ctx; let accounts; let skins; let instances; let sources; let content; let modpacks; let home; let packlink;
 const running = new Map();
 const blockedSessions = new Map();
 let pendingOpenFiles = [];
@@ -502,6 +503,28 @@ function registerIpc() {
   handle('accounts:setActive', async (id) => accounts.setActive(id));
   handle('accounts:remove', async (id) => accounts.remove(id));
 
+  // --- skins (wardrobe + the active Microsoft account's skin and cape)
+  handle('skins:list', async () => skins.list());
+  handle('skins:profile', async (accountId) => skins.profile(accountId ? String(accountId) : null));
+  handle('skins:inspect', async (file) => skins.inspectFile(file));
+  handle('skins:add', async (opts) => skins.addFile({ path: opts?.path, name: opts?.name, model: opts?.model }));
+  handle('skins:update', async (id, patch) => skins.update(String(id), { name: patch?.name, model: patch?.model }));
+  handle('skins:remove', async (kind, id) => skins.remove(kind === 'history' ? 'history' : 'wardrobe', String(id)));
+  handle('skins:clearHistory', async () => skins.clearHistory());
+  handle('skins:keep', async (id) => skins.keepFromHistory(String(id)));
+  handle('skins:importPlayer', async (name) => skins.importPlayer(name));
+  handle('skins:apply', async (opts) => {
+    const out = await skins.apply({ kind: opts?.kind === 'history' ? 'history' : 'wardrobe', id: String(opts?.id), accountId: opts?.accountId ? String(opts.accountId) : null, model: opts?.model });
+    send('accounts:changed');
+    return out;
+  });
+  handle('skins:reset', async (accountId) => {
+    const out = await skins.resetSkin(accountId ? String(accountId) : null);
+    send('accounts:changed');
+    return out;
+  });
+  handle('skins:cape', async (accountId, capeId) => skins.setCape(accountId ? String(accountId) : null, capeId === null || capeId === undefined ? null : String(capeId)));
+
   // --- blocked downloads helper
   handle('blocked:status', async (sid) => blockedSessions.get(sid)?.status() || null);
   handle('blocked:pickFiles', async (sid) => {
@@ -595,6 +618,7 @@ app.whenReady().then(async () => {
   const fetchImpl = process.env.JUNCTION_FETCH_MOCK ? require(process.env.JUNCTION_FETCH_MOCK) : undefined;
   ctx = await createContext(dataRoot(), { crypto: osCrypto, fetchImpl, builtins: loadBuildConfig({ appRoot: app.getAppPath() }) });
   accounts = await new Accounts(ctx).load();
+  skins = new Skins(ctx, accounts);
   instances = new Instances(ctx);
   sources = createSources(ctx);
   content = new ContentManager(ctx, instances, sources);
