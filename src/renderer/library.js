@@ -31,7 +31,7 @@ async function renderLibrary(_p, token) {
           h('span', null, inst.lastPlayed ? `Played ${ago(inst.lastPlayed)}` : 'Never played')),
         playButton(inst, 'sm')))));
   }
-  view().replaceChildren(h('div', { class: 'page' }, head, body));
+  view().replaceChildren(h('div', { class: 'page page-full' }, head, body));
 }
 
 function importMenu(anchor) {

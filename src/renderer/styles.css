@@ -104,6 +104,7 @@ a { color: var(--accent); }
 /* ---------- main ---------- */
 #view { overflow: auto; min-width: 0; position: relative; }
 .page { padding: 26px 32px 48px; max-width: var(--browse-w, 1760px); margin: 0 auto; }
+.page.page-full { max-width: none; }
 .page-head { display: flex; align-items: center; gap: 12px; margin-bottom: 20px; flex-wrap: wrap; }
 .page-head h1 { font-size: 24px; margin: 0; font-weight: 700; flex: 1; }
 .muted { color: var(--muted); }
