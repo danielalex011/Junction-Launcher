@@ -107,7 +107,7 @@ const SRC = { modrinth: 'Modrinth', curseforge: 'CurseForge', local: 'Local', fi
 
 function avatar(item, size = '') {
   const src = item.iconSrc || item.icon;
-  const url = src && /^(https|junction-icon):\/\//.test(src) ? src : null;
+  const url = src && /^((https|junction-icon):\/\/|data:image\/(png|jpeg|gif|webp);base64,)/.test(src) ? src : null;
   const label = (item.name || item.title || '?').trim();
   if (url) {
     const img = h('img', { class: `avatar ${size}`, src: url, alt: '', loading: 'lazy', referrerpolicy: 'no-referrer' });
@@ -586,7 +586,7 @@ async function importFromLaunchers() {
         const loaderTxt = f.loader && f.loader !== 'vanilla' ? `${LOADER[f.loader] || f.loader}${f.loaderVersion ? ` ${f.loaderVersion}` : ''}` : (f.loader === 'vanilla' ? 'Vanilla' : 'Unknown loader');
         return h('label', { class: 'item', style: { gridTemplateColumns: '22px 34px 1fr auto', cursor: f.mcVersion ? 'pointer' : 'default' } },
           box,
-          avatar({ name: f.name }, 'sm'),
+          avatar({ name: f.name, iconSrc: f.preview }, 'sm'),
           h('div', { style: { minWidth: 0 } },
             h('div', { class: 'i-title ellipsis', title: f.folder }, f.name),
             h('div', { class: 'i-file ellipsis' }, `${loaderTxt} · ${f.mcVersion ? `Minecraft ${f.mcVersion}` : 'version unknown'} · ${f.modCount} mod${f.modCount === 1 ? '' : 's'}`,

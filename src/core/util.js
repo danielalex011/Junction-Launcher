@@ -118,6 +118,31 @@ function safeJoin(base, rel) {
   return target;
 }
 
+/** What kind of picture is this? Decided from the first bytes, never from the file name. */
+function sniffImage(buf) {
+  if (!buf || buf.length < 4) return null;
+  if (buf[0] === 0x89 && buf[1] === 0x50 && buf[2] === 0x4e && buf[3] === 0x47) return { ext: '.png', mime: 'image/png' };
+  if (buf[0] === 0xff && buf[1] === 0xd8 && buf[2] === 0xff) return { ext: '.jpg', mime: 'image/jpeg' };
+  if (buf.toString('latin1', 0, 4) === 'GIF8') return { ext: '.gif', mime: 'image/gif' };
+  if (buf.length >= 12 && buf.toString('latin1', 0, 4) === 'RIFF' && buf.toString('latin1', 8, 12) === 'WEBP') return { ext: '.webp', mime: 'image/webp' };
+  return null;
+}
+
+/** Same as sniffImage for a file on disk; null if it can't be read or isn't a picture. */
+async function imageTypeOfFile(file) {
+  let fh;
+  try {
+    fh = await fs.promises.open(file, 'r');
+    const buf = Buffer.alloc(16);
+    const { bytesRead } = await fh.read(buf, 0, 16, 0);
+    return sniffImage(buf.subarray(0, bytesRead));
+  } catch {
+    return null;
+  } finally {
+    await fh?.close().catch(() => {});
+  }
+}
+
 function osName() {
   return { win32: 'windows', darwin: 'osx', linux: 'linux' }[process.platform] || process.platform;
 }
@@ -184,6 +209,6 @@ function formatBytes(n) {
 
 module.exports = {
   exists, ensureDir, readJson, writeJson, hashBuffer, hashFile, pool, slugify, matchKey, shortId,
-  mavenPath, mavenKey, safeJoin, osName, splitArgs, copyDir, listFiles, compareVersions, formatBytes,
+  mavenPath, mavenKey, safeJoin, sniffImage, imageTypeOfFile, osName, splitArgs, copyDir, listFiles, compareVersions, formatBytes,
   totalMemMB: () => Math.floor(os.totalmem() / 1024 / 1024),
 };

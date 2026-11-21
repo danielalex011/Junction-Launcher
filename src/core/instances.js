@@ -6,7 +6,7 @@
 const fs = require('fs');
 const fsp = fs.promises;
 const path = require('path');
-const { exists, readJson, writeJson, ensureDir, slugify, shortId, copyDir, hashFile, safeJoin } = require('./util');
+const { exists, readJson, writeJson, ensureDir, slugify, shortId, copyDir, hashFile, safeJoin, imageTypeOfFile } = require('./util');
 const { readModMetadata } = require('./content/metadata');
 
 const TYPE_DIR = { mod: 'mods', resourcepack: 'resourcepacks', shader: 'shaderpacks' };
@@ -77,8 +77,11 @@ class Instances {
   }
 
   async setIconFromFile(id, src) {
-    const ext = path.extname(src).toLowerCase();
-    if (!ICON_EXT.includes(ext)) throw new Error('Pick a PNG, JPG, WebP or GIF image.');
+    // The file's contents decide, not its name: pictures from other launchers
+    // often have no extension (or the wrong one).
+    const type = await imageTypeOfFile(src);
+    if (!type) throw new Error('Pick a PNG, JPG, WebP or GIF image.');
+    const ext = type.ext;
     const st = await fsp.stat(src);
     if (st.size > 10 * 1024 * 1024) throw new Error('That image is over 10 MB. Pick a smaller one.');
     const inst = await this.get(id);

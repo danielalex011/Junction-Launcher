@@ -1,5 +1,5 @@
 'use strict';
-const { app, BrowserWindow, ipcMain, dialog, shell, safeStorage, Menu, protocol, net } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, shell, safeStorage, Menu, protocol, net, nativeImage } = require('electron');
 const { pathToFileURL } = require('url');
 const fs = require('fs');
 const path = require('path');
@@ -17,7 +17,7 @@ const { detectInstance, importInstance, scanLaunchers } = require('../core/conte
 const { listGameVersions } = require('../core/minecraft/versions');
 const { listLoaderVersions, pickDefault, LOADER_NAMES } = require('../core/loaders');
 const { prepareInstance, launch } = require('../core/minecraft/launch');
-const { shortId } = require('../core/util');
+const { shortId, sniffImage } = require('../core/util');
 const { loadBuildConfig } = require('../core/build-config');
 
 const VERSION = require('../../package.json').version;
@@ -274,10 +274,33 @@ function registerIpc() {
     shell.showItemInFolder(r.filePath);
     return res;
   });
+  /** A small data: URL for the import window, so it never needs file access. https pictures are passed through. */
+  function iconPreview(info) {
+    try {
+      if (info.iconPath) {
+        let img = nativeImage.createFromPath(info.iconPath);
+        if (!img.isEmpty()) {
+          const { width, height } = img.getSize();
+          if (width > 64 || height > 64) img = img.resize(width >= height ? { width: 64 } : { height: 64 });
+          return img.toDataURL();
+        }
+        // Formats Electron can't decode itself (e.g. WebP): send the bytes as they are if they're small.
+        const st = fs.statSync(info.iconPath);
+        if (st.size <= 64 * 1024) {
+          const buf = fs.readFileSync(info.iconPath);
+          const type = sniffImage(buf);
+          if (type) return `data:${type.mime};base64,${buf.toString('base64')}`;
+        }
+      }
+      if (typeof info.iconUrl === 'string' && /^https:\/\//.test(info.iconUrl)) return info.iconUrl;
+    } catch { /* no preview: the window shows a letter instead */ }
+    return null;
+  }
+  const withPreview = (info) => ({ ...info, preview: iconPreview(info) });
   handle('import:pickFolder', async () => {
     const r = await dialog.showOpenDialog(win, { properties: ['openDirectory'], title: 'Pick an instance folder from another launcher' });
     if (r.canceled) return null;
-    return detectInstance(r.filePaths[0]);
+    return withPreview(await detectInstance(r.filePaths[0]));
   });
   handle('import:scan', async () => {
     let knownVersions = null;
@@ -289,12 +312,12 @@ function registerIpc() {
     return {
       notes,
       instances: found.map((f) => ({
-        ...f,
+        ...withPreview(f),
         alreadyImported: imported.has(path.resolve(f.folder)) || byName.has(`${String(f.name).toLowerCase()}|${f.mcVersion}`),
       })),
     };
   });
-  handle('import:detect', async (folder) => detectInstance(folder));
+  handle('import:detect', async (folder) => withPreview(await detectInstance(folder)));
   handle('import:run', async (info, choices) => ctx.tasks.run(`Importing ${choices.name || info.name}`, (t) => importInstance({ instances, content }, info, choices, t.update)));
 
   // --- accounts

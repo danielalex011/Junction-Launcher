@@ -5,7 +5,7 @@ const fs = require('fs');
 const fsp = fs.promises;
 const os = require('os');
 const path = require('path');
-const { readJson, exists, copyDir } = require('../util');
+const { readJson, exists, copyDir, safeJoin, imageTypeOfFile } = require('../util');
 const { parseLoaderId, neoForgeToMc, listLoaderVersions, pickDefault } = require('../loaders');
 const { readModMetadata } = require('./metadata');
 
@@ -54,6 +54,67 @@ async function readLogVersion(gameDir) {
   } finally {
     await fh.close().catch(() => {});
   }
+}
+
+// ---------------------------------------------------------------- instance pictures
+
+const ICON_FILE_NAMES = ['icon.png', 'pack.png', 'icon.jpg', 'icon.jpeg', 'icon.webp', 'icon.gif', 'pack.jpg', 'pack.jpeg', 'pack.webp', 'icon', 'pack'];
+const MAX_ICON_BYTES = 10 * 1024 * 1024;
+
+/** The path if it is a real picture (by its first bytes, whatever it is called), else null. */
+async function usableImage(file) {
+  try {
+    const st = await fsp.stat(file);
+    if (!st.isFile() || st.size > MAX_ICON_BYTES) return null;
+  } catch { return null; }
+  return (await imageTypeOfFile(file)) ? file : null;
+}
+
+/**
+ * Finds the picture another launcher recorded for an instance.
+ *   ref      what the launcher stored: https URL, absolute path, path relative to its folder, or nothing
+ *   baseDirs folders a relative ref is resolved against (e.g. the ModrinthApp folder)
+ *   folders  instance folders to look in for icon.png / pack.png when nothing else works
+ * Returns { path } or { url } or null. Nothing here is ever written to.
+ */
+async function resolveIcon(ref, { baseDirs = [], folders = [] } = {}) {
+  const r = typeof ref === 'string' ? ref.trim() : '';
+  if (r) {
+    if (/^https:\/\//i.test(r)) return { url: r };
+    const candidates = [];
+    if (/^file:\/\//i.test(r)) {
+      try { candidates.push(require('url').fileURLToPath(r)); } catch { /* not a valid file URL */ }
+    } else if (path.isAbsolute(r)) {
+      candidates.push(r);
+    } else {
+      for (const b of baseDirs) { try { candidates.push(safeJoin(b, r)); } catch { /* escapes the folder: ignore */ } }
+    }
+    for (const c of candidates) if (await usableImage(c)) return { path: c };
+  }
+  for (const folder of [...new Set(folders.filter(Boolean))]) {
+    const names = await fsp.readdir(folder).catch(() => []);
+    for (const want of ICON_FILE_NAMES) {
+      const name = names.find((n) => n.toLowerCase() === want);
+      if (name && (await usableImage(path.join(folder, name)))) return { path: path.join(folder, name) };
+    }
+  }
+  return null;
+}
+
+/** Sets the imported picture on a new instance, but never replaces one that is already there. */
+async function applyImportedIcon(instances, id, info) {
+  try {
+    const cur = await instances.get(id);
+    if (cur.icon) return false; // a picture the user set in Junction always wins
+    if (info.iconPath) {
+      try { await instances.setIconFromFile(id, info.iconPath); return true; } catch { /* try the URL next */ }
+    }
+    if (typeof info.iconUrl === 'string' && /^https:\/\//.test(info.iconUrl)) {
+      await instances.update(id, { icon: info.iconUrl });
+      return true;
+    }
+  } catch { /* an icon is never worth failing an import over */ }
+  return false;
 }
 
 /** Inspects a folder and returns what we could work out about it. */
@@ -143,6 +204,10 @@ async function detectInstance(folder, { quick = false, skipModScan = false, know
     }
     const top = Object.entries(counts).sort((a, b) => b[1] - a[1])[0];
     info.loader = top?.[0] || guess.loader || (mods.length ? null : 'vanilla');
+  }
+  if (!info.iconPath && !info.iconUrl) {
+    const found = await resolveIcon(null, { folders: [folder, info.gameDir] });
+    if (found?.path) info.iconPath = found.path;
   }
   const modCount = (await fsp.readdir(path.join(info.gameDir, 'mods')).catch(() => [])).length;
   return { ...info, modCount };
@@ -249,8 +314,38 @@ async function readModrinthDb(dbFile) {
   try {
     db = await openDbCopy(dbFile);
     const tables = db.all("SELECT name FROM sqlite_master WHERE type='table'").map((r) => r.name);
-    const order = ['profiles', ...tables.filter((t) => t !== 'profiles')].filter((t) => tables.includes(t));
     let used = null;
+    // Newer Modrinth App: `instances` (path, name, icon_path) plus `instance_content_sets`
+    // (game_version, loader, loader_version). Must go first, because the content-sets table
+    // also has a game_version column and the generic scan below would take it for profiles.
+    if (!tables.includes('profiles') && tables.includes('instances')) {
+      const icols = db.all('PRAGMA table_info("instances")').map((c) => c.name);
+      if (icols.includes('path')) {
+        used = { table: 'instances', cols: icols };
+        const sets = new Map();
+        if (tables.includes('instance_content_sets')) {
+          for (const s of db.all('SELECT * FROM instance_content_sets')) {
+            if (!sets.has(s.instance_id)) sets.set(s.instance_id, []);
+            sets.get(s.instance_id).push(s);
+          }
+        }
+        for (const row of db.all('SELECT * FROM instances')) {
+          const list = sets.get(row.id) || [];
+          const cs = list.find((s) => s.id === row.applied_content_set_id) || list.find((s) => s.game_version) || null;
+          const loader = cs?.loader ? String(cs.loader).replace(/"/g, '').toLowerCase() : null;
+          const key = row.path && path.basename(String(row.path).replace(/\\/g, '/'));
+          if (!key || out.has(key)) continue;
+          out.set(key, {
+            name: row.name || null,
+            mcVersion: cs?.game_version ? String(cs.game_version) : null,
+            loader,
+            loaderVersion: loader === 'vanilla' ? null : asVersionString(cs?.loader_version),
+            iconPath: typeof row.icon_path === 'string' && row.icon_path ? row.icon_path : null,
+          });
+        }
+      }
+    }
+    const order = out.size ? [] : ['profiles', ...tables.filter((t) => t !== 'profiles')].filter((t) => tables.includes(t));
     for (const t of order) {
       const cols = db.all(`PRAGMA table_info("${t.replace(/"/g, '""')}")`).map((c) => c.name);
       if (t !== 'profiles' && !cols.includes('game_version')) continue;
@@ -377,8 +472,10 @@ async function scanLaunchers(opts = {}) {
           if (meta.mcVersion) info.mcVersion = meta.mcVersion;
           if (meta.loader) info.loader = meta.loader;
           if (meta.loaderVersion) info.loaderVersion = meta.loaderVersion;
-          if (meta.iconPath && /\.(png|jpe?g|webp|gif)$/i.test(meta.iconPath)) {
-            info.iconPath = path.isAbsolute(meta.iconPath) ? meta.iconPath : path.join(path.dirname(loc.db), meta.iconPath);
+          if (meta.iconPath) {
+            const appDir = path.dirname(loc.db);
+            const icon = await resolveIcon(meta.iconPath, { baseDirs: [appDir, path.join(appDir, 'caches', 'icons')] });
+            if (icon?.path) { info.iconPath = icon.path; delete info.iconUrl; } else if (icon?.url) { info.iconUrl = icon.url; delete info.iconPath; }
           }
           info.exact = true;
           info.detectedBy = 'database';
@@ -411,10 +508,7 @@ async function importInstance({ instances, content }, info, { name, mcVersion, l
     loader: loader && loader !== 'vanilla' ? { type: loader, version: lv } : { type: 'vanilla' },
   });
   await instances.update(inst.id, { importedFrom: info.folder });
-  try {
-    if (info.iconPath && (await exists(info.iconPath))) await instances.setIconFromFile(inst.id, info.iconPath);
-    else if (info.iconUrl) await instances.update(inst.id, { icon: info.iconUrl });
-  } catch { /* an icon is never worth failing an import over */ }
+  await applyImportedIcon(instances, inst.id, info);
   report(0.1, 'Copying files');
   await copyDir(info.gameDir, instances.gameDir(inst.id), {
     filter: (p) => {
@@ -428,4 +522,4 @@ async function importInstance({ instances, content }, info, { name, mcVersion, l
   return { instance: inst, ...r };
 }
 
-module.exports = { detectInstance, importInstance, guessFromName, versionCandidates, readLogVersion, scanLaunchers, launcherLocations, readModrinthDb, parseVersionId };
+module.exports = { detectInstance, importInstance, guessFromName, versionCandidates, readLogVersion, scanLaunchers, launcherLocations, readModrinthDb, parseVersionId, resolveIcon, applyImportedIcon };

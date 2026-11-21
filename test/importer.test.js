@@ -4,7 +4,7 @@ const assert = require('node:assert/strict');
 const fs = require('fs');
 const path = require('path');
 const { tmpDir, makeCtx, fabricJar } = require('./helpers');
-const { scanLaunchers, parseVersionId, importInstance, readModrinthDb, guessFromName, readLogVersion, detectInstance } = require('../src/core/content/importer');
+const { scanLaunchers, parseVersionId, importInstance, readModrinthDb, guessFromName, readLogVersion, detectInstance, resolveIcon, applyImportedIcon } = require('../src/core/content/importer');
 const { Instances } = require('../src/core/instances');
 const { createSources } = require('../src/core/sources');
 const { ContentManager } = require('../src/core/content/manager');
@@ -96,10 +96,11 @@ test('instance pictures: set from a file, remove, and restore the modpack pictur
   assert.equal(a.originalIcon, 'https://cdn.modrinth.com/data/x/icon.png');
   assert.ok(await instances.iconFile(inst.id));
   const jpg = path.join(tmpDir(), 'other.JPG');
-  write(jpg, 'jpg');
+  write(jpg, Buffer.from([0xff, 0xd8, 0xff, 0xe0, 0, 16]));
   await instances.setIconFromFile(inst.id, jpg);
   assert.ok(!fs.existsSync(path.join(instances.instDir(inst.id), 'icon.png')), 'old picture replaced');
   await assert.rejects(instances.setIconFromFile(inst.id, path.join(tmpDir(), 'x.exe')), /PNG/);
+  assert.ok(!fs.existsSync(path.join(instances.instDir(inst.id), 'icon.png')));
   const b = await instances.clearIcon(inst.id);
   assert.equal(b.icon, 'https://cdn.modrinth.com/data/x/icon.png');
   assert.equal(await instances.iconFile(inst.id), null);
@@ -194,4 +195,124 @@ test('exact versions come from the game log of an instance that was launched bef
   write(path.join(misnamed, 'mods', 'a.jar'), fabricJar('a'));
   const info = await detectInstance(misnamed);
   assert.deepEqual([info.mcVersion, info.loader, info.loaderVersion, info.detectedBy], ['1.21.1', 'fabric', '0.16.14', 'log']);
+});
+
+const PNG = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1, 2, 3]);
+const JPEG = Buffer.from([0xff, 0xd8, 0xff, 0xe0, 0, 16, 74, 70, 73, 70]);
+const WEBP = Buffer.concat([Buffer.from('RIFF'), Buffer.from([4, 0, 0, 0]), Buffer.from('WEBPVP8 ')]);
+
+test('pictures are recognised by their first bytes: no extension is fine, a fake .png is not', async () => {
+  const ctx = await makeCtx([]);
+  const instances = new Instances(ctx);
+  const inst = await instances.create({ name: 'Pic', mcVersion: '1.21.1' });
+  const dir = tmpDir();
+  write(path.join(dir, 'abc123'), PNG); // like Modrinth App's cache files
+  const a = await instances.setIconFromFile(inst.id, path.join(dir, 'abc123'));
+  assert.equal(a.icon, 'local:icon.png');
+  write(path.join(dir, 'wrong.png'), JPEG); // the name lies
+  assert.equal((await instances.setIconFromFile(inst.id, path.join(dir, 'wrong.png'))).icon, 'local:icon.jpg');
+  write(path.join(dir, 'w'), WEBP);
+  assert.equal((await instances.setIconFromFile(inst.id, path.join(dir, 'w'))).icon, 'local:icon.webp');
+  write(path.join(dir, 'notes.png'), 'just some text');
+  await assert.rejects(instances.setIconFromFile(inst.id, path.join(dir, 'notes.png')), /PNG, JPG, WebP or GIF/);
+  assert.equal((await instances.get(inst.id)).icon, 'local:icon.webp', 'a rejected file leaves the picture alone');
+});
+
+test('resolveIcon: https URL, absolute path, relative path, no extension, folder fallback, nothing', async () => {
+  const app = tmpDir();
+  write(path.join(app, 'caches', 'icons', 'rel.png'), PNG);
+  write(path.join(app, 'caches', 'icons', 'noext'), JPEG);
+  write(path.join(app, 'caches', 'icons', 'text.png'), 'not a picture');
+  write(path.join(path.dirname(app), 'outside.png'), PNG);
+  const inst = tmpDir();
+  write(path.join(inst, 'Pack.PNG'), PNG);
+  const opts = { baseDirs: [app] };
+  assert.deepEqual(await resolveIcon('https://cdn.modrinth.com/a.png', opts), { url: 'https://cdn.modrinth.com/a.png' });
+  assert.equal(await resolveIcon('http://insecure.example/a.png', opts), null, 'plain http is not used');
+  assert.deepEqual(await resolveIcon(path.join(app, 'caches', 'icons', 'noext'), opts), { path: path.join(app, 'caches', 'icons', 'noext') });
+  assert.deepEqual(await resolveIcon('caches/icons/rel.png', opts), { path: path.join(app, 'caches', 'icons', 'rel.png') });
+  assert.deepEqual(await resolveIcon('caches\\icons\\rel.png', opts), { path: path.join(app, 'caches', 'icons', 'rel.png') }, 'Windows separators');
+  assert.equal(await resolveIcon('caches/icons/text.png', opts), null, 'named like a picture but is not one');
+  assert.equal(await resolveIcon('../outside.png', opts), null, 'a relative path cannot climb out of the launcher folder');
+  assert.equal(await resolveIcon(path.join(app, 'missing.png'), opts), null);
+  assert.deepEqual(await resolveIcon(null, { folders: [inst] }), { path: path.join(inst, 'Pack.PNG') }, 'pack.png is found whatever its case');
+  assert.equal(await resolveIcon(null, { folders: [tmpDir()] }), null);
+});
+
+test('Modrinth App (new database layout) gives exact versions and every kind of picture reference', async () => {
+  const { DatabaseSync } = require('node:sqlite');
+  const home = tmpDir();
+  const appData = path.join(home, 'AppData', 'Roaming');
+  const mr = path.join(appData, 'ModrinthApp');
+  const cache = path.join(mr, 'caches', 'icons');
+  write(path.join(cache, 'abs.png'), PNG);
+  write(path.join(cache, 'noext'), JPEG);
+  write(path.join(cache, 'rel.webp'), WEBP);
+  write(path.join(cache, 'fake.png'), 'text');
+  write(path.join(appData, 'secret.png'), PNG);
+  const names = ['Absolute', 'NoExt', 'Relative', 'FromUrl', 'Fallback', 'Climbing', 'Fake', 'Nothing'];
+  for (const n of names) {
+    write(path.join(mr, 'profiles', n, 'mods', 'a.jar'), fabricJar('a'));
+    write(path.join(mr, 'profiles', n, 'options.txt'), 'x');
+  }
+  write(path.join(mr, 'profiles', 'Fallback', 'icon.png'), PNG);
+  write(path.join(mr, 'profiles', 'Nothing', 'readme.txt'), 'x');
+  const db = new DatabaseSync(path.join(mr, 'app.db'));
+  db.exec('CREATE TABLE instances (id TEXT PRIMARY KEY, path TEXT, applied_content_set_id TEXT, name TEXT, icon_path TEXT)');
+  db.exec('CREATE TABLE instance_content_sets (id TEXT PRIMARY KEY, instance_id TEXT, name TEXT, game_version TEXT, loader TEXT, loader_version TEXT)');
+  const refs = {
+    Absolute: path.join(cache, 'abs.png'), NoExt: path.join(cache, 'noext'), Relative: 'caches/icons/rel.webp',
+    FromUrl: 'https://cdn.modrinth.com/data/x/icon.png', Fallback: null, Climbing: '../../secret.png', Fake: path.join(cache, 'fake.png'), Nothing: null,
+  };
+  names.forEach((n, i) => {
+    db.prepare('INSERT INTO instances VALUES (?,?,?,?,?)').run(`legacy:${n}`, n, `cs:${n}`, `${n} pack`, refs[n]);
+    db.prepare('INSERT INTO instance_content_sets VALUES (?,?,?,?,?,?)').run(`cs:${n}`, `legacy:${n}`, 'Default', '1.21.1', 'fabric', '0.16.14');
+  });
+  db.close();
+
+  const map = await readModrinthDb(path.join(mr, 'app.db'));
+  assert.ok(!map.has('Default'), 'the content-sets table is not mistaken for profiles');
+  assert.deepEqual([map.get('Absolute').name, map.get('Absolute').mcVersion, map.get('Absolute').loader, map.get('Absolute').loaderVersion], ['Absolute pack', '1.21.1', 'fabric', '0.16.14']);
+
+  const { instances: found } = await scanLaunchers({ platform: 'win32', env: { APPDATA: appData }, home });
+  const get = (n) => found.find((f) => f.name === `${n} pack`);
+  assert.equal(get('Absolute').iconPath, path.join(cache, 'abs.png'));
+  assert.equal(get('NoExt').iconPath, path.join(cache, 'noext'));
+  assert.equal(get('Relative').iconPath, path.join(cache, 'rel.webp'));
+  assert.equal(get('FromUrl').iconUrl, 'https://cdn.modrinth.com/data/x/icon.png');
+  assert.equal(get('FromUrl').iconPath, undefined);
+  assert.equal(get('Fallback').iconPath, path.join(mr, 'profiles', 'Fallback', 'icon.png'));
+  assert.equal(get('Climbing').iconPath, undefined, 'never reads outside the launcher folder');
+  assert.equal(get('Fake').iconPath, undefined);
+  assert.equal(get('Nothing').iconPath, undefined);
+  assert.equal(get('Absolute').detectedBy, 'database');
+
+  // Importing an extension-less picture works end to end, and the other launcher's files are untouched.
+  const ctx = await makeCtx([['POST', /version_files/, () => ({ json: {} })]]);
+  const instances = new Instances(ctx);
+  const content = new ContentManager(ctx, instances, createSources(ctx));
+  const r = await importInstance({ instances, content }, get('NoExt'), {});
+  const imported = await instances.get(r.instance.id);
+  assert.equal(imported.icon, 'local:icon.jpg');
+  assert.deepEqual(fs.readFileSync(await instances.iconFile(imported.id)), JPEG);
+  assert.ok(fs.existsSync(path.join(cache, 'noext')));
+});
+
+test('an imported picture never replaces one that is already set', async () => {
+  const ctx = await makeCtx([]);
+  const instances = new Instances(ctx);
+  const dir = tmpDir();
+  write(path.join(dir, 'theirs'), PNG);
+  const mine = await instances.create({ name: 'Mine', mcVersion: '1.21.1' });
+  const myImg = path.join(dir, 'mine.jpg');
+  write(myImg, JPEG);
+  await instances.setIconFromFile(mine.id, myImg);
+  assert.equal(await applyImportedIcon(instances, mine.id, { iconPath: path.join(dir, 'theirs') }), false);
+  assert.equal(await applyImportedIcon(instances, mine.id, { iconUrl: 'https://cdn.modrinth.com/x.png' }), false);
+  assert.equal((await instances.get(mine.id)).icon, 'local:icon.jpg');
+  assert.deepEqual(fs.readFileSync(await instances.iconFile(mine.id)), JPEG);
+  // A fresh instance does get the picture; a broken file falls back to the URL.
+  const fresh = await instances.create({ name: 'Fresh', mcVersion: '1.21.1' });
+  assert.equal(await applyImportedIcon(instances, fresh.id, { iconPath: path.join(dir, 'missing'), iconUrl: 'https://cdn.modrinth.com/x.png' }), true);
+  assert.equal((await instances.get(fresh.id)).icon, 'https://cdn.modrinth.com/x.png');
 });
