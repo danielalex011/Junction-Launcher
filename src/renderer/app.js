@@ -969,7 +969,7 @@ function updateReviewDialog(inst, updates, onDone) {
       },
     ],
   });
-  m.el.style.width = 'min(980px, 100%)';
+  m.el.style.width = 'min(1100px, 100%)';
   actionBtn = m.el.querySelectorAll('.m-foot .btn')[1];
   rows.forEach((r) => { if (!allowed(r.u.version)) r.include = false; });
   redraw();
@@ -1565,14 +1565,26 @@ async function renderSettings(_p, token) {
   view().replaceChildren(h('div', { class: 'page', style: { maxWidth: '900px' } },
     h('div', { class: 'page-head' }, h('h1', null, 'Settings'), h('button', { class: 'btn primary', type: 'button', onclick: () => save().catch((e) => toast(e.message, 'error')) }, icon('check'), 'Save')),
     h('div', { class: 'section' }, h('h3', null, 'Microsoft sign-in'),
-      h('p', null, 'Junction signs you in directly with Microsoft — your password never touches the launcher. Microsoft requires every launcher to have its own Azure app ID, and Mojang must approve new ones (see the README).'),
-      h('label', { class: 'field' }, 'Azure application (client) ID', f.msClientId),
-      h('div', { class: 'hint', style: { marginTop: '8px' } }, link('Register an app in Azure', 'https://portal.azure.com/#view/Microsoft_AAD_RegisteredApps/ApplicationsListBlade'), ' · ', link('Request Minecraft API access', 'https://aka.ms/mce-reviewappid'))),
+      s.builtin_msClientId
+        ? h('p', null, 'Sign-in works out of the box: you sign in on Microsoft\'s own page, so your password never touches Junction.')
+        : h('p', null, 'This build has no sign-in app ID. Microsoft requires every launcher to sign in through its own registered Azure app, and Mojang must approve new apps. See “Building it yourself” in the README.'),
+      (() => {
+        const links = h('div', { class: 'hint', style: { marginTop: '8px' } }, link('Register an app in Azure', 'https://portal.azure.com/#view/Microsoft_AAD_RegisteredApps/ApplicationsListBlade'), ' · ', link('Request Minecraft API access', 'https://aka.ms/mce-reviewappid'));
+        return s.builtin_msClientId
+          ? h('details', { class: 'adv', open: Boolean(s.msClientId) }, h('summary', null, 'Advanced: use your own Azure app ID'),
+            h('label', { class: 'field' }, 'Azure application (client) ID. Leave empty to use the built-in one.', f.msClientId), links)
+          : [h('label', { class: 'field' }, 'Azure application (client) ID', f.msClientId), links];
+      })()),
     h('div', { class: 'section' }, h('h3', null, 'CurseForge'),
-      h('p', null, 'CurseForge requires an API key for search and downloads. Get one free from the CurseForge for Studios console. It\'s stored encrypted.'),
-      h('div', { class: 'row' }, h('label', { class: 'field grow' }, 'API key', f.cfApiKey),
-        s.has_cfApiKey ? h('button', { class: 'btn danger', type: 'button', style: { alignSelf: 'flex-end' }, onclick: async () => { await call('settings:set', { cfApiKey: '' }); toast('CurseForge key removed'); go('settings'); } }, 'Remove key') : null),
-      h('div', { class: 'hint', style: { marginTop: '8px' } }, s.has_cfApiKey ? h('span', { style: { color: 'var(--good)' } }, '✓ Key saved. ') : null, link('Get a key at console.curseforge.com', 'https://console.curseforge.com/'))),
+      s.builtin_cfApiKey
+        ? h('p', null, 'CurseForge search and downloads work out of the box with Junction\'s own API key. You can use your own key instead if you have one.')
+        : h('p', null, 'CurseForge requires an API key for search and downloads. Get one free from the CurseForge for Studios console. It\'s stored encrypted. Without a key, Junction works with Modrinth only.'),
+      (() => {
+        const field = h('div', { class: 'row' }, h('label', { class: 'field grow' }, s.builtin_cfApiKey ? 'Your own API key (optional)' : 'API key', f.cfApiKey),
+          s.has_cfApiKey ? h('button', { class: 'btn danger', type: 'button', style: { alignSelf: 'flex-end' }, onclick: async () => { await call('settings:set', { cfApiKey: '' }); toast('CurseForge key removed'); go('settings'); } }, 'Remove key') : null);
+        const hint = h('div', { class: 'hint', style: { marginTop: '8px' } }, s.has_cfApiKey ? h('span', { style: { color: 'var(--good)' } }, '✓ Your key is saved. ') : null, link('Get a key at console.curseforge.com', 'https://console.curseforge.com/'));
+        return s.builtin_cfApiKey ? h('details', { class: 'adv', open: Boolean(s.has_cfApiKey) }, h('summary', null, 'Advanced: use your own CurseForge API key'), field, hint) : [field, hint];
+      })()),
     h('div', { class: 'section' }, h('h3', null, 'Sources'),
       h('div', { class: 'row wrap', style: { gap: '22px' } },
         h('label', { class: 'check' }, f.srcMr, 'Search Modrinth'),

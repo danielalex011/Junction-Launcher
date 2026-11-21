@@ -24,9 +24,10 @@ function defaults() {
 }
 
 class Settings {
-  constructor(file, crypto) {
+  constructor(file, crypto, builtins = {}) {
     this.file = file;
     this.crypto = crypto;
+    this.builtins = builtins; // defaults baked into the build (see build-config.js)
     this.data = defaults();
     this.secrets = {}; // encrypted, as stored on disk
     this.plain = {}; // decrypted, in memory only
@@ -50,7 +51,8 @@ class Settings {
   }
 
   get(key) {
-    if (SECRET_KEYS.includes(key)) return this.plain[key] || '';
+    if (SECRET_KEYS.includes(key)) return this.plain[key] || this.builtins[key] || '';
+    if (key in this.builtins && !this.data[key]) return this.builtins[key];
     return this.data[key];
   }
 
@@ -58,6 +60,9 @@ class Settings {
   publicView() {
     const out = { ...this.data };
     for (const k of SECRET_KEYS) out[`has_${k}`] = Boolean(this.secrets[k]);
+    // Whether the build ships its own value (the value itself is never sent to the UI).
+    out.builtin_msClientId = Boolean(this.builtins.msClientId);
+    out.builtin_cfApiKey = Boolean(this.builtins.cfApiKey);
     return out;
   }
 

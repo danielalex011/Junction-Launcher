@@ -1,132 +1,145 @@
-# Junction: a Minecraft launcher for Modrinth *and* CurseForge
+# Junction
 
-Junction is a desktop Minecraft launcher (Windows, macOS, Linux) that lets you:
+**A Minecraft launcher that installs mods and modpacks from both Modrinth and CurseForge.**
 
-- **Search Modrinth and CurseForge at the same time.** A mod that's on both sites shows up once, with a badge for each, and you choose which site to install from.
-- **Install mods, modpacks, resource packs and shaders from either site.** Required dependencies are installed too.
-- **Mix sources freely in one instance.** For example, Fabric API from CurseForge plus Sodium from Modrinth.
-- **Build your own pack.** Create an instance, add whatever you want, then export it as a Modrinth `.mrpack` or a CurseForge `.zip`.
-- **Bring your instances over** from the CurseForge app, Modrinth App or Prism/MultiMC without re-downloading anything.
-- **Play** vanilla, Fabric, Quilt, Forge and NeoForge. The right Java version (8/17/21/25) is downloaded for you.
+Search both sites at once, mix mods from both in the same instance, build your own packs, and bring over the instances you already have from other launchers. No ads, no telemetry, and no account needed to browse.
 
-No ads, no telemetry, no account needed to browse.
+Windows · macOS · Linux
 
 ---
 
-## What it fixes compared with the two official apps
+## Features
 
-| Problem | CurseForge app | Modrinth App | Junction |
-|---|---|---|---|
-| Content from the other site | ✗ | ✗ | ✓ unified search, mixed instances |
-| Ads | Ads in the free app | Ads unless you pay for Modrinth+ | None |
-| Telemetry / account wall | Overwolf, login for many actions | Account for some features | None, and the source is right here |
-| Same mod installed twice (once from each site) | n/a | n/a | Detected via the jar's own mod id; replaced automatically or flagged |
-| CurseForge mods with third-party downloads disabled | ✓ | ✗ | Opens the file page, watches your Downloads folder and moves the file into place automatically (no workaround that ignores the author's choice) |
-| Updating hand-added or imported jars | ✗ | Partly | Recognises jars by hash on Modrinth and by fingerprint on CurseForge, so they become updatable |
-| Pinning a version (e.g. after a bad Fabric API release) | ✗ | ✗ | "Pin this version" makes updates skip it |
-| Export a pack for the *other* platform | ✗ | ✗ | Export both formats. Files are linked where the target site has them and bundled otherwise |
-| Weight | Overwolf-based | Tauri | Electron (about 140 MB zipped). Not the smallest, but nothing runs in the background |
+- **One search for two sites.** Results from Modrinth and CurseForge appear together. A project published on both shows up once, with a badge for each site, and you choose where to install it from.
+- **Mods, modpacks, resource packs and shaders.** Required dependencies are installed automatically.
+- **Mix sources freely.** For example, Fabric API from CurseForge alongside Sodium from Modrinth in the same instance.
+- **No duplicate mods.** Junction reads the mod ID inside each jar, so the same mod installed from both sites is caught and replaced instead of crashing the game.
+- **Knows what you have.** When you browse for an instance, mods that are already installed are marked, even if they came from the other site.
+- **Updates you control.** Check both sites for updates, then review them first. You can pick the exact version for each mod (not just the newest), skip any of them, and undo the whole update if something breaks. You can also pin a version so it's never offered as an update.
+- **Make your own packs.** Create an instance, add what you like, and export it as a Modrinth `.mrpack` or a CurseForge `.zip`.
+- **Import from other launchers.** Junction finds your instances in the Modrinth App, the CurseForge app, Prism/PolyMC, GDLauncher, ATLauncher and the official Minecraft Launcher, with their exact game and loader versions. It copies them over without re-downloading anything and leaves the originals untouched.
+- **Every major loader.** Vanilla, Fabric, Quilt, Forge and NeoForge, including the new 26.x Minecraft versions.
+- **Java included.** The right Java version for each Minecraft release is downloaded automatically.
+- **Respects mod authors.** Some CurseForge authors only allow downloads from the CurseForge website. For those files, Junction opens the download page, watches your Downloads folder, and moves each file into place once you've downloaded it.
+- **Per-instance settings.** Memory, Java, JVM arguments (with Generational ZGC and tuned G1 presets), window size, join a server on launch, and a custom picture.
 
----
+## Download
+
+Get the latest version from the [Releases page](https://github.com/danielalex011/Junction-Launcher/releases).
+
+- **Windows:** run the installer, or unzip the portable `.zip` anywhere and start `Junction.exe`. To keep all data next to the program (for example on a USB stick), put an empty file called `portable.txt` next to `Junction.exe`.
+- **macOS / Linux:** use the `.dmg` / `.AppImage`, or run from source (see below).
 
 ## Getting started
 
-### Option A: Windows build
-Unzip `Junction-<version>-win-x64.zip` anywhere and run `Junction.exe`.
-To keep all data next to the exe (e.g. on a USB stick), create an empty file called `portable.txt` beside `Junction.exe`.
+1. **Sign in.** Go to *Accounts → Add Microsoft account*. You'll get a short code to enter at microsoft.com/link. You sign in on Microsoft's own page, so your password never touches Junction.
+2. **Get an instance:**
+   - *Library → New instance* to start from scratch,
+   - *Browse → Modpacks* to install a pack, or
+   - *Import → Instances from other launchers* to bring your existing ones over.
+3. **Add mods** from the instance page, then press **Play**.
 
-### Option B: run from source (any OS)
-```bash
-npm install
-npm start
-```
-Requires Node.js 20+.
-
-### One-time setup (Settings page)
-
-**1. CurseForge API key** (for CurseForge search and downloads)
-Get a free key at <https://console.curseforge.com/> and paste it in Settings → CurseForge. Since July 2026 CurseForge requires the key on CDN downloads too, so Junction sends it with every CurseForge request and nowhere else. The key is stored encrypted with your OS keychain.
-Without a key Junction still works fully with Modrinth.
-
-**2. Microsoft sign-in (Azure app ID)**
-Microsoft requires every launcher to sign in through its own registered app, and Mojang must approve new ones. This is free and is a one-time step:
-
-1. Go to <https://portal.azure.com> → *App registrations* → *New registration*.
-   - Name: anything (e.g. "Junction personal")
-   - Supported account types: **Personal Microsoft accounts only**
-   - Redirect URI: leave empty
-2. Open the app → *Authentication* → *Advanced settings* → set **Allow public client flows** to **Yes** → Save.
-3. Copy the **Application (client) ID** from the Overview page.
-4. Submit the Minecraft API access form: <https://aka.ms/mce-reviewappid>. Until Mojang approves it, sign-in stops with *"Mojang refused this app (403)"*.
-5. Paste the client ID into Settings → Microsoft sign-in, then go to Accounts → *Add Microsoft account*.
-
-Sign-in uses Microsoft's device-code page, so your password never touches the launcher. Tokens are encrypted with the OS keychain.
-Offline accounts (for singleplayer/LAN) unlock once you've added a Microsoft account that owns the game.
-
----
+Offline accounts (for singleplayer and LAN) become available after you've signed in with a Microsoft account that owns Minecraft: Java Edition.
 
 ## Everyday use
 
-- **Library → New instance**: pick a loader, Minecraft version and loader version. Junction suggests names like "Fabric 26.1.2".
-- **Instance → Add mods**: opens Browse locked to that instance's version and loader. **Install** picks the newest compatible release. Open a project to choose a specific version, or to switch between its Modrinth and CurseForge pages.
-- **Check for updates → Update all**: checks both sites (pinned files are skipped), then opens a review window. Each mod shows current → new version, and you can pick any newer compatible version per mod or untick it to skip it. You can also set whether the default is the newest release, release-or-beta, or anything. Replaced jars are backed up, and **Undo last update** puts them back.
-- **⋯ → Export**: choose which folders to include (mods, config, kubejs, options.txt…).
-- **Import**: drop a `.mrpack` or CurseForge `.zip` onto the window, or use *Import → Instances from other launchers*. Junction finds your instances automatically in:
-  - Modrinth App (it reads Modrinth App's own database for the exact version and loader)
-  - the CurseForge app
-  - Prism / PolyMC, GDLauncher and ATLauncher
-  - the official Minecraft Launcher's profiles
+| Task | Where |
+|---|---|
+| Add mods, resource packs or shaders | Instance → **Add mods** (Browse locked to that instance's version and loader) |
+| Pick a specific version of a mod | Click the project → **Versions** tab |
+| Update mods | Instance → **Check for updates** → **Update all**, review, then confirm |
+| Roll back an update | Instance → **Undo last update** |
+| Stop a mod from being updated | Mod list → **⋯ → Pin this version** |
+| Disable or remove a mod | Checkbox / **⋯ → Remove** in the mod list |
+| Export your pack | Instance → **⋯ → Export as Modrinth pack / CurseForge pack** |
+| Update an installed modpack | Instance → **⋯ → Check for modpack update** (your `config` folder is backed up first) |
+| Change an instance's picture | Click its icon, or drop an image on the instance page |
+| Import a pack file | Drag a `.mrpack` or CurseForge `.zip` onto the window |
 
-  Tick the ones you want and import them in one go. If you moved a launcher's folder, use *Browse for a folder…*. Originals are copied, never modified.
-- **Settings tab of an instance**: memory, Java path, JVM arguments (with Generational ZGC and tuned G1 presets), window size, and *Join server on launch*.
-- **Modpack instances**: *⋯ → Check for modpack update*. Mods the pack installed are replaced, mods you added yourself are kept, and `config/` is backed up to `backups/` first.
+## Where your data is
 
-## Where data lives
-- Windows: `%APPDATA%\Junction\data`
-- macOS: `~/Library/Application Support/Junction/data`
-- Linux: `~/.config/Junction/data`
+| OS | Folder |
+|---|---|
+| Windows | `%APPDATA%\Junction\data` |
+| macOS | `~/Library/Application Support/Junction/data` |
+| Linux | `~/.config/Junction/data` |
 
-Settings → *Open data folder* opens it. Each instance is `instances/<id>/minecraft` (a normal game folder), plus `content.json`, which records where every file came from.
+*Settings → Open data folder* takes you there. Each instance is a normal Minecraft folder at `instances/<name>/minecraft`.
 
-## Network & privacy
-Junction only talks to Mojang (game files, Java), Microsoft/Xbox (sign-in), Modrinth, CurseForge, and the loader sites (fabricmc.net, quiltmc.org, minecraftforge.net, neoforged.net). Mod icons load from those sites' CDNs. Nothing else, no analytics.
+## Privacy & security
 
-Security details:
-- Every download is SHA-1/SHA-512 verified before it's moved into place.
-- Modpack paths are checked so a malicious pack can't write outside the instance.
-- Project descriptions render in a sandboxed frame with scripts disabled.
-- The UI has no Node.js access.
+- Junction only talks to Mojang (game files and Java), Microsoft/Xbox (sign-in), Modrinth, CurseForge and the mod loader sites (fabricmc.net, quiltmc.org, minecraftforge.net, neoforged.net). There are no ads and no analytics.
+- Sign-in tokens and API keys are encrypted with your operating system's keychain.
+- Every download is verified against its SHA-1/SHA-512 hash before it's used.
+- Modpacks can't write files outside their instance folder.
+- Mod descriptions are shown in a sandbox with scripts disabled.
 
-## Building installers
-```bash
-npm run dist:win     # NSIS installer + zip (run on Windows; on Linux the installer step needs Wine)
-npm run dist:mac
-npm run dist:linux   # AppImage
-```
+## FAQ
 
-## Tests
-```bash
-npm test
-```
-43 tests run against a fake Mojang/Fabric/Modrinth/CurseForge/Microsoft. They cover the full install → launch path (spawning a stand-in Java), dependencies across sites, duplicate detection, blocked-download pickup, modpack import/export round trips, path-traversal rejection, the Forge/NeoForge headless installer and Microsoft sign-in.
+**Why do some CurseForge mods need a manual download?**
+Their authors have turned off downloads in third-party launchers. Junction respects that. It opens the file's page so you can download it from CurseForge, then installs it for you automatically.
+
+**Does importing change my other launcher's instances?**
+No. Files are copied and the originals are left exactly as they were.
+
+**Can I use my own CurseForge API key or Azure app?**
+Yes, under *Settings → Advanced*. Official builds don't need either.
 
 ## Known limitations
-- **Forge for Minecraft older than 1.13** uses legacy installers that can't run headless, so it isn't supported. Fabric/Quilt/vanilla work for old versions.
-- Launchers installed to a non-default folder aren't found automatically. Use *Browse for a folder…* for those.
-- The test suite runs against recorded API shapes, not the live services. If a site changes its API, the first real run is where that shows up. Errors are shown in the task panel bottom-left.
+
+- Forge for Minecraft versions older than 1.13 isn't supported, because its installers can't run without a window. Fabric, Quilt and vanilla work on old versions.
+- Launchers installed to a non-default folder aren't found automatically. Use *Import → Browse for a folder…* for those.
 - No skin manager or instance groups yet.
 
-## Project layout
+---
+
+## Building it yourself
+
+Requires [Node.js](https://nodejs.org) 20 or newer.
+
+```bash
+npm install
+npm start          # run in development
+npm test           # run the test suite
+npm run dist:win   # Windows installer + portable zip (build on Windows)
+npm run dist:mac   # macOS .dmg
+npm run dist:linux # Linux AppImage
+```
+
+### Sign-in and CurseForge keys for your build
+
+Official builds include a Microsoft sign-in app ID and a CurseForge API key. Neither is in this repository. If you build Junction yourself, either:
+
+- copy `build-config.example.json` to `build-config.json` and fill it in before building (the file is git-ignored), or
+- set `JUNCTION_MS_CLIENT_ID` / `JUNCTION_CF_API_KEY` as environment variables, or
+- leave them empty and enter them in *Settings* after starting the app.
+
+To get them:
+
+- **Microsoft sign-in:** register an app at [portal.azure.com](https://portal.azure.com) → *App registrations*:
+  - Supported account types: *Personal Microsoft accounts only*
+  - No redirect URI
+  - Then under *Authentication*, set **Allow public client flows** to *Yes*.
+
+  New apps must be approved by Mojang before they can sign in to Minecraft, using [this form](https://aka.ms/mce-reviewappid). If you fork Junction, please use your own app ID rather than the official one.
+- **CurseForge:** request a key at [console.curseforge.com](https://console.curseforge.com/).
+
+### Project layout
+
 ```
 src/core/        launcher engine (plain Node, no Electron)
   minecraft/     versions, libraries, assets, Java runtimes, launch arguments
   loaders/       Fabric, Quilt, Forge, NeoForge
-  sources/       Modrinth + CurseForge clients, unified search, CF fingerprints
-  content/       install/update/dedupe, modpacks, export, import, blocked downloads
+  sources/       Modrinth + CurseForge clients, unified search, CurseForge fingerprints
+  content/       install/update/undo, duplicate detection, modpacks, export, import
   auth/          Microsoft device-code sign-in, offline accounts
-src/main/        Electron main process + preload bridge
-src/renderer/    UI (HTML/CSS/vanilla JS)
-test/            node:test suites with a fake network
+src/main/        Electron main process and preload bridge
+src/renderer/    user interface (HTML/CSS/JavaScript)
+test/            automated tests against a simulated Mojang/Modrinth/CurseForge/Microsoft
 ```
 
-MIT licensed. Junction is not affiliated with Mojang, Microsoft, Modrinth or CurseForge.
+## License
+
+MIT. See [LICENSE](LICENSE).
+
+Junction is not affiliated with Mojang, Microsoft, Modrinth or CurseForge. Minecraft is a trademark of Mojang Synergies AB.

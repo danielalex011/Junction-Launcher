@@ -18,6 +18,7 @@ const { listGameVersions } = require('../core/minecraft/versions');
 const { listLoaderVersions, pickDefault, LOADER_NAMES } = require('../core/loaders');
 const { prepareInstance, launch } = require('../core/minecraft/launch');
 const { shortId } = require('../core/util');
+const { loadBuildConfig } = require('../core/build-config');
 
 const VERSION = require('../../package.json').version;
 let win = null;
@@ -394,7 +395,7 @@ app.whenReady().then(async () => {
   encryptionAvailable = await safeStorage.isAsyncEncryptionAvailable().catch(() => false);
   // Dev hook for automated UI screenshots: swap in a fake network.
   const fetchImpl = process.env.JUNCTION_FETCH_MOCK ? require(process.env.JUNCTION_FETCH_MOCK) : undefined;
-  ctx = await createContext(dataRoot(), { crypto: osCrypto, fetchImpl });
+  ctx = await createContext(dataRoot(), { crypto: osCrypto, fetchImpl, builtins: loadBuildConfig({ appRoot: app.getAppPath() }) });
   accounts = await new Accounts(ctx).load();
   instances = new Instances(ctx);
   sources = createSources(ctx);

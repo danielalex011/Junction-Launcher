@@ -91,8 +91,8 @@ a { color: var(--accent); }
 .btn.installed { color: var(--good); border-color: rgba(60,207,142,.35); background: rgba(60,207,142,.08); }
 .btn.installed:hover { background: rgba(60,207,142,.15); }
 .item.current { background: rgba(60,207,142,.06); }
-.upd-list { max-height: calc(100vh - 360px); overflow: auto; }
-.item.upd-row { grid-template-columns: 22px 34px minmax(140px, 1fr) minmax(70px, 180px) 14px minmax(180px, 280px) 64px; }
+.list.upd-list { max-height: calc(100vh - 360px); overflow-y: auto; overscroll-behavior: contain; }
+.item.upd-row { grid-template-columns: 22px 34px minmax(110px, 1fr) minmax(70px, 170px) 14px minmax(230px, 1.25fr) 64px; }
 .upd-row .ico { transform: rotate(180deg); color: var(--faint); }
 .upd-row.skipped .i-title, .upd-row.skipped .avatar, .upd-row.skipped .upd-from, .upd-row.skipped select { opacity: .45; }
 .upd-row .badge { justify-self: start; }
@@ -179,6 +179,9 @@ input[type=checkbox] { accent-color: var(--accent); width: 16px; height: 16px; }
 .section { background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius); padding: 18px; margin-bottom: 16px; }
 .section h3 { margin: 0 0 4px; font-size: 15px; }
 .section > p { margin: 0 0 14px; color: var(--muted); font-size: 13px; line-height: 1.5; }
+details.adv { margin-top: 4px; }
+details.adv > summary { cursor: pointer; color: var(--muted); font-size: 13px; font-weight: 600; margin-bottom: 10px; }
+details.adv > summary:hover { color: var(--text); }
 .hint { color: var(--faint); font-size: 12px; font-weight: 400; line-height: 1.45; }
 
 /* ---------- browse ---------- */

@@ -235,3 +235,26 @@ test('settings never expose secrets to the UI', async () => {
 });
 
 module.exports = { AdmZip };
+
+test('built-in sign-in ID and CurseForge key are used unless the user sets their own', async () => {
+  const fs2 = require('fs');
+  const { createContext } = require('../src/core/context');
+  const { loadBuildConfig } = require('../src/core/build-config');
+  const dir = tmpDir();
+  fs2.writeFileSync(path.join(dir, 'build-config.json'), JSON.stringify({ msClientId: 'built-in-id', cfApiKey: 'built-in-key' }));
+  const builtins = loadBuildConfig({ appRoot: dir });
+  assert.deepEqual(builtins, { msClientId: 'built-in-id', cfApiKey: 'built-in-key' });
+  assert.deepEqual(loadBuildConfig({ appRoot: tmpDir() }), { msClientId: '', cfApiKey: '' });
+  const ctx = await createContext(tmpDir(), { builtins });
+  assert.equal(ctx.settings.get('msClientId'), 'built-in-id');
+  assert.equal(ctx.settings.get('cfApiKey'), 'built-in-key');
+  const pub = ctx.settings.publicView();
+  assert.equal(pub.builtin_msClientId, true);
+  assert.ok(!JSON.stringify(pub).includes('built-in-key'), 'the built-in key is never sent to the UI');
+  await ctx.settings.update({ msClientId: 'mine', cfApiKey: 'my-key' });
+  assert.equal(ctx.settings.get('msClientId'), 'mine');
+  assert.equal(ctx.settings.get('cfApiKey'), 'my-key');
+  await ctx.settings.update({ msClientId: '', cfApiKey: '' });
+  assert.equal(ctx.settings.get('msClientId'), 'built-in-id');
+  assert.equal(ctx.settings.get('cfApiKey'), 'built-in-key');
+});
