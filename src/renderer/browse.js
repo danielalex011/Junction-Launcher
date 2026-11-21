@@ -215,14 +215,14 @@ function installFromDialog(hit, alts, target) {
           v.size ? h('span', null, fmtBytes(v.size)) : null));
         if (isPack) rows.push(h('div', { class: 'sc-pack' }, `Minecraft ${v.gameVersions.join(', ') || 'unknown'} · ${v.loaders.map((l) => LOADER[l] || l).join(', ') || 'loader not listed'}`));
         if (isPack && o.source === 'curseforge') rows.push(h('div', { class: 'hint' }, 'CurseForge packs can include mods that need a manual download. Junction will guide you through those.'));
-        if (v.manualDownload) rows.push(h('div', { class: 'notice warn', style: { margin: 0 } }, icon('alert'), 'The author only allows downloads from the CurseForge website, so you will be sent there.'));
+        if (v.manualDownload) rows.push(h('div', { class: 'notice warn', style: { margin: 0 } }, icon('alert'), isPack ? 'The author only allows downloads from the CurseForge website. Junction opens the page, then installs the zip once it lands in your Downloads folder.' : 'The author only allows downloads from the CurseForge website, so you will be sent there.'));
       } else {
         rows.push(h('div', { class: 'sc-why' }, o.reason || 'Nothing to install.'));
       }
       return h('div', { class: `src-card ${v ? '' : 'off'}` },
         h('div', { class: 'row', style: { gap: '8px' } }, sourceBadge(o.source, o.url), o.newer ? h('span', { class: 'badge good plain' }, 'Newer') : null),
         ...rows,
-        v ? h('button', { class: 'btn primary', type: 'button', onclick: () => pick(o) }, icon('download'), `Install from ${SRC[o.source]}`) : null);
+        v ? h('button', { class: 'btn primary', type: 'button', onclick: () => pick(o) }, v.manualDownload ? icon('external') : icon('download'), v.manualDownload ? `Open on ${SRC[o.source]}` : `Install from ${SRC[o.source]}`) : null);
     };
     call('browse:compareSources', { alts, type: hit.type, instanceId: target?.id }).then((r) => {
       const usable = r.options.filter((o) => o.version);

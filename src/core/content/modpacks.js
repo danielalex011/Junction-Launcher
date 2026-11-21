@@ -353,7 +353,7 @@ class Modpacks {
   }
 
   /** Install a pack picked in the Browse page (or update an existing instance to a new version). */
-  async installFromSource({ source, projectId, versionId, instanceId, report = () => {} }) {
+  async lookupPack(source, projectId, versionId) {
     const project = source === 'modrinth' ? await this.sources.modrinth.project(projectId) : (await this.sources.curseforge.mods([projectId]))[0];
     let version;
     if (versionId) {
@@ -363,7 +363,29 @@ class Modpacks {
       version = pickVersion(list, 'modpack');
     }
     if (!version) throw new Error('No downloadable version of this modpack was found');
-    const file = pickFile(version);
+    return { project, version, file: pickFile(version) };
+  }
+
+  /** null when the pack can be downloaded by Junction; otherwise what to wait for in the Downloads folder (the author disabled third-party downloads). */
+  async manualPackInfo({ source, projectId, versionId }) {
+    const { project, version, file } = await this.lookupPack(source, projectId, versionId);
+    if (file.url) return null;
+    return { title: project.title, fileName: file.filename, sha1: file.sha1 || null, pageUrl: CurseForge.manualDownloadUrl(project, version.id), versionId: version.id };
+  }
+
+  /** `manualFile`: the zip the user downloaded from the CurseForge page (kept; only cache copies are deleted). */
+  async installFromSource({ source, projectId, versionId, instanceId, manualFile, report = () => {} }) {
+    const { project, version, file } = await this.lookupPack(source, projectId, versionId);
+    if (!file.url && manualFile) {
+      report(0.02, `Using ${path.basename(manualFile)}`);
+      return this.installFile(manualFile, {
+        name: project.title,
+        icon: project.icon,
+        instanceId,
+        pack: { source, projectId, versionId: version.id, name: project.title, versionName: version.versionNumber, url: project.url },
+        report,
+      });
+    }
     if (!file.url) {
       const e = new Error(`The author of ${project.title} only allows downloads from the CurseForge website. Download the zip there, then use Import → From file.`);
       e.manualUrl = CurseForge.manualDownloadUrl(project, version.id);

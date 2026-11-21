@@ -12,7 +12,7 @@ const { createSources, searchAll, compatibleLoaders } = require('../core/sources
 const { compareSources } = require('../core/sources/choose');
 const { ContentManager } = require('../core/content/manager');
 const { Modpacks } = require('../core/content/modpacks');
-const { BlockedWatcher } = require('../core/content/blocked');
+const { BlockedWatcher, waitForDownload } = require('../core/content/blocked');
 const { exportMrpack, exportCurseForge, exportableEntries } = require('../core/content/export');
 const { detectInstance, importInstance, scanLaunchers } = require('../core/content/importer');
 const { listGameVersions } = require('../core/minecraft/versions');
@@ -274,8 +274,19 @@ function registerIpc() {
   });
 
   // --- modpacks
+  // Packs whose author blocks third-party downloads: open the CurseForge page, wait (cancellable, in Activity) for the zip.
+  const waitForManualPack = async (opts) => {
+    const info = await modpacks.manualPackInfo(opts);
+    if (!info) return null;
+    shell.openExternal(info.pageUrl);
+    return ctx.tasks.run(`Waiting for download… ${info.title}`, async (t) => {
+      t.update(0, `Download ${info.fileName} on the CurseForge page. Junction picks it up from your Downloads folder.`);
+      return waitForDownload({ dir: app.getPath('downloads'), fileName: info.fileName, sha1: info.sha1, signal: t.signal });
+    }, { kind: 'download', icon: 'download' });
+  };
   handle('pack:installFromSource', async (opts) => {
-    const r = await ctx.tasks.run(`Installing ${opts.title || 'modpack'}`, (t) => modpacks.installFromSource({ ...opts, report: t.update }), { kind: 'modpack', icon: 'pack', heavy: true, createsInstance: true });
+    const manualFile = opts.source === 'curseforge' ? await waitForManualPack(opts) : null;
+    const r = await ctx.tasks.run(`Installing ${opts.title || 'modpack'}`, (t) => modpacks.installFromSource({ ...opts, manualFile, report: t.update }), { kind: 'modpack', icon: 'pack', heavy: true, createsInstance: true });
     return { ...r, blockedSession: startBlockedSession(r.instance.id, r.blocked) };
   });
   handle('pack:importFile', async (filePath) => {

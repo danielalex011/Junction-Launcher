@@ -91,4 +91,48 @@ class BlockedWatcher extends EventEmitter {
   }
 }
 
-module.exports = { BlockedWatcher };
+/**
+ * Waits for one file (a modpack zip the author only allows from their website) to show up in the
+ * Downloads folder. Resolves with its path once the sha1 matches (or, when the API gave none, once a
+ * file with that name newer than `since` appears). Rejects if `signal` aborts (the task's Cancel).
+ */
+function waitForDownload({ dir, fileName, sha1, signal, since = Date.now() - 2000, pollMs = 2000 }) {
+  return new Promise((resolve, reject) => {
+    let watcher = null;
+    let timer = null;
+    let busy = false;
+    let finished = false;
+    const ext = path.extname(fileName);
+    const stem = fileName.slice(0, ext ? -ext.length : undefined);
+    const wanted = new Set([fileName, ...[1, 2, 3].map((n) => `${stem} (${n})${ext}`)]);
+    const end = (fn, v) => {
+      if (finished) return;
+      finished = true;
+      if (watcher) watcher.close();
+      clearInterval(timer);
+      if (signal) signal.removeEventListener('abort', onAbort);
+      fn(v);
+    };
+    const onAbort = () => end(reject, signal.reason || new Error('Cancelled'));
+    const scan = async () => {
+      if (busy || finished) return;
+      busy = true;
+      try {
+        const names = (await fsp.readdir(dir).catch(() => [])).filter((n) => wanted.has(n));
+        for (const n of names) {
+          const full = path.join(dir, n);
+          const st = await fsp.stat(full).catch(() => null);
+          if (!st || !st.isFile()) continue;
+          if (sha1 ? (await hashFile(full, 'sha1').catch(() => '')) === sha1 : st.mtimeMs >= since) { end(resolve, full); return; }
+        }
+      } finally { busy = false; }
+    };
+    if (signal?.aborted) return onAbort();
+    if (signal) signal.addEventListener('abort', onAbort, { once: true });
+    try { watcher = fs.watch(dir, () => scan()); } catch { /* polling only */ }
+    timer = setInterval(scan, pollMs);
+    scan();
+  });
+}
+
+module.exports = { BlockedWatcher, waitForDownload };
