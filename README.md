@@ -69,7 +69,7 @@ Offline accounts (for singleplayer/LAN) unlock once you've added a Microsoft acc
 
 - **Library → New instance**: pick a loader, Minecraft version and loader version. Junction suggests names like "Fabric 26.1.2".
 - **Instance → Add mods**: opens Browse locked to that instance's version and loader. **Install** picks the newest compatible release. Open a project to choose a specific version, or to switch between its Modrinth and CurseForge pages.
-- **Check for updates / Update all**: checks both sites. Pinned files are skipped.
+- **Check for updates → Update all**: checks both sites (pinned files are skipped), then opens a review window. Each mod shows current → new version, and you can pick any newer compatible version per mod or untick it to skip it. You can also set whether the default is the newest release, release-or-beta, or anything. Replaced jars are backed up, and **Undo last update** puts them back.
 - **⋯ → Export**: choose which folders to include (mods, config, kubejs, options.txt…).
 - **Import**: drop a `.mrpack` or CurseForge `.zip` onto the window, or use *Import → Instances from other launchers*. Junction finds your instances automatically in:
   - Modrinth App (it reads Modrinth App's own database for the exact version and loader)
@@ -108,7 +108,7 @@ npm run dist:linux   # AppImage
 ```bash
 npm test
 ```
-36 tests run against a fake Mojang/Fabric/Modrinth/CurseForge/Microsoft. They cover the full install → launch path (spawning a stand-in Java), dependencies across sites, duplicate detection, blocked-download pickup, modpack import/export round trips, path-traversal rejection, the Forge/NeoForge headless installer and Microsoft sign-in.
+43 tests run against a fake Mojang/Fabric/Modrinth/CurseForge/Microsoft. They cover the full install → launch path (spawning a stand-in Java), dependencies across sites, duplicate detection, blocked-download pickup, modpack import/export round trips, path-traversal rejection, the Forge/NeoForge headless installer and Microsoft sign-in.
 
 ## Known limitations
 - **Forge for Minecraft older than 1.13** uses legacy installers that can't run headless, so it isn't supported. Fabric/Quilt/vanilla work for old versions.

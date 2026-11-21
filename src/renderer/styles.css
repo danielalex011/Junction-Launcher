@@ -91,6 +91,13 @@ a { color: var(--accent); }
 .btn.installed { color: var(--good); border-color: rgba(60,207,142,.35); background: rgba(60,207,142,.08); }
 .btn.installed:hover { background: rgba(60,207,142,.15); }
 .item.current { background: rgba(60,207,142,.06); }
+.upd-list { max-height: calc(100vh - 360px); overflow: auto; }
+.item.upd-row { grid-template-columns: 22px 34px minmax(140px, 1fr) minmax(70px, 180px) 14px minmax(180px, 280px) 64px; }
+.upd-row .ico { transform: rotate(180deg); color: var(--faint); }
+.upd-row.skipped .i-title, .upd-row.skipped .avatar, .upd-row.skipped .upd-from, .upd-row.skipped select { opacity: .45; }
+.upd-row .badge { justify-self: start; }
+.upd-from { color: var(--muted); font-size: 12px; text-align: right; font-family: ui-monospace, Consolas, monospace; }
+.upd-select { width: 100%; font-family: ui-monospace, Consolas, monospace; font-size: 12px; padding: 6px 8px; }
 .btn.sm { padding: 5px 9px; font-size: 12px; }
 .btn.lg { padding: 11px 18px; font-size: 14px; }
 input[type=text], input[type=number], input[type=password], input[type=search], select, textarea {

@@ -8,7 +8,7 @@ const { compatibleLoaders } = require('../sources');
 const { CurseForge, LOADER_TYPE } = require('../sources/curseforge');
 const { curseFingerprintFile } = require('../sources/fingerprint');
 const { readModMetadata } = require('./metadata');
-const { matchKey, exists, hashFile, ensureDir, pool } = require('../util');
+const { matchKey, exists, hashFile, ensureDir, pool, readJson, writeJson } = require('../util');
 
 const RANK = { release: 0, beta: 1, alpha: 2 };
 
@@ -122,6 +122,7 @@ class ContentManager {
       const oldRel = summary.byProject.get(key);
       if (oldRel && oldRel !== rel) {
         await this.removeFiles(instId, [oldRel]);
+        for (const [mid, r] of summary.modIds) if (r === oldRel) summary.modIds.delete(mid);
       } else if (oldRel === rel && summary.idx.files[rel]?.versionId === v.id && (await exists(dest))) {
         result.skipped.push({ title, reason: 'this version is already installed' });
         continue;
@@ -313,7 +314,7 @@ class ContentManager {
         for (const i of items) {
           const v = latest[idx.files[i.file].sha1];
           if (v && v.id !== i.versionId && !v.files.some((f) => f.sha1 === idx.files[i.file].sha1)) {
-            updates.push({ file: i.file, title: i.title, type: t, source: 'modrinth', current: i.versionName, next: v.versionNumber, version: v });
+            updates.push({ file: i.file, title: i.title, icon: i.icon, type: t, source: 'modrinth', current: i.versionName, currentVersionId: i.versionId, projectId: i.projectId, next: v.versionNumber, version: v });
           }
         }
       } catch (e) { updates.push({ error: `Modrinth: ${e.message}` }); }
@@ -336,25 +337,105 @@ class ContentManager {
         const files = new Map((await this.sources.curseforge.files(wanted.map((w) => w.fileId))).map((f) => [f.id, f]));
         for (const w of wanted) {
           const v = files.get(w.fileId);
-          if (v) updates.push({ file: w.item.file, title: w.item.title, type: w.item.type, source: 'curseforge', current: w.item.versionName, next: v.versionNumber, version: v, project: w.project });
+          if (v) updates.push({ file: w.item.file, title: w.item.title, icon: w.item.icon, type: w.item.type, source: 'curseforge', current: w.item.versionName, currentVersionId: w.item.versionId, projectId: w.item.projectId, next: v.versionNumber, version: v, project: w.project });
         }
       } catch (e) { updates.push({ error: `CurseForge: ${e.message}` }); }
     }
     return updates;
   }
 
+  /** Newer compatible versions of a project than the one installed (newest first), for the update picker. */
+  async updateCandidates(instId, { source, projectId, type, currentVersionId }) {
+    const inst = await this.instances.get(instId);
+    const list = await this.compatibleVersions(source, projectId, inst, type);
+    const cur = list.find((v) => String(v.id) === String(currentVersionId));
+    const curDate = cur ? new Date(cur.date).getTime() : null;
+    return list
+      .filter((v) => String(v.id) !== String(currentVersionId) && (curDate === null || new Date(v.date).getTime() > curDate))
+      .sort((a, b) => new Date(b.date) - new Date(a.date))
+      .slice(0, 60)
+      .map((v) => ({ ...v, changelog: undefined }));
+  }
+
+  backupsDir(instId) {
+    return path.join(this.instances.instDir(instId), 'backups', 'updates');
+  }
+
+  /**
+   * Installs the chosen versions. Every replaced file is backed up first so the
+   * whole batch can be undone with undoUpdate().
+   */
   async applyUpdates(instId, updates, report = () => {}) {
-    const out = { installed: [], blocked: [], warnings: [] };
+    const out = { installed: [], blocked: [], warnings: [], backup: null };
+    const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+    const bdir = path.join(this.backupsDir(instId), stamp);
+    const before = await this.instances.readIndex(instId);
+    const record = { stamp, date: Date.now(), items: [] };
     let i = 0;
     for (const u of updates) {
       if (!u.version) continue;
       report(i++ / updates.length, `Updating ${u.title}`);
-      const r = await this.installVersion(instId, u.version, { type: u.type, project: u.project || null, withDeps: true });
+      const onPath = this.instances.contentPath(instId, u.file, true);
+      const offPath = this.instances.contentPath(instId, u.file, false);
+      const wasDisabled = !(await exists(onPath)) && (await exists(offPath));
+      const src = wasDisabled ? offPath : onPath;
+      let backup = null;
+      if (await exists(src)) {
+        backup = u.file + (wasDisabled ? '.disabled' : '');
+        await ensureDir(path.dirname(path.join(bdir, backup)));
+        await fsp.copyFile(src, path.join(bdir, backup));
+      }
+      let r;
+      try {
+        r = await this.installVersion(instId, u.version, { type: u.type, project: u.project || null, withDeps: true });
+      } catch (e) {
+        out.warnings.push(`${u.title}: ${e.message}`);
+        continue;
+      }
+      const newRels = r.installed.map((x) => x.file);
+      if (wasDisabled && newRels[0]) await this.setEnabled(instId, newRels[0], false);
+      record.items.push({ title: u.title, oldRel: u.file, backup, oldEntry: before.files[u.file] || null, newRels, from: u.current || '', to: u.version.versionNumber });
       out.installed.push(...r.installed);
       out.blocked.push(...r.blocked);
       out.warnings.push(...r.warnings);
     }
+    if (record.items.length) {
+      await writeJson(path.join(bdir, 'update.json'), record);
+      out.backup = stamp;
+      // Keep the five most recent update backups.
+      const all = (await fsp.readdir(this.backupsDir(instId)).catch(() => [])).sort().reverse();
+      for (const old of all.slice(5)) await fsp.rm(path.join(this.backupsDir(instId), old), { recursive: true, force: true });
+    }
     return out;
+  }
+
+  async updateHistory(instId) {
+    const out = [];
+    for (const name of (await fsp.readdir(this.backupsDir(instId)).catch(() => [])).sort().reverse()) {
+      const rec = await readJson(path.join(this.backupsDir(instId), name, 'update.json'), null);
+      if (rec) out.push({ stamp: rec.stamp, date: rec.date, items: rec.items.map(({ title, from, to }) => ({ title, from, to })) });
+    }
+    return out;
+  }
+
+  /** Puts back the exact files an update replaced, and removes what it added. */
+  async undoUpdate(instId, stamp) {
+    if (!/^[\w-]+$/.test(String(stamp))) throw new Error('Bad backup id');
+    const bdir = path.join(this.backupsDir(instId), stamp);
+    const rec = await readJson(path.join(bdir, 'update.json'), null);
+    if (!rec) throw new Error('That update backup no longer exists.');
+    for (const item of [...rec.items].reverse()) {
+      await this.removeFiles(instId, item.newRels);
+      if (item.backup) {
+        const disabled = item.backup.endsWith('.disabled');
+        const dest = this.instances.contentPath(instId, item.oldRel, !disabled);
+        await ensureDir(path.dirname(dest));
+        await fsp.copyFile(path.join(bdir, item.backup), dest);
+      }
+      if (item.oldEntry) await this.instances.withIndex(instId, (idx) => { idx.files[item.oldRel] = item.oldEntry; });
+    }
+    await fsp.rm(bdir, { recursive: true, force: true });
+    return { restored: rec.items.length };
   }
 
   /** Called when a user supplies a file we couldn't download automatically. */

@@ -17,6 +17,7 @@ function defaults() {
     closeOnLaunch: false,
     showSnapshots: false,
     includeOptionalPackFiles: true,
+    updateChannel: 'alpha', // newest of: release | beta | alpha
     confirmBeforeDelete: true,
     cfApiBase: 'https://api.curseforge.com',
   };

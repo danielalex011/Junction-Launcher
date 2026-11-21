@@ -204,8 +204,15 @@ function registerIpc() {
   handle('content:identify', async (id) => ctx.tasks.run('Identifying files', (t) => content.identify(id, null, t.update), { instanceId: id }));
   handle('content:checkUpdates', async (id) => ctx.tasks.run('Checking for updates', () => content.checkUpdates(id), { instanceId: id }));
   handle('content:applyUpdates', async (id, updates) => {
+    if (running.has(id)) throw new Error('Close the game before updating its mods.');
     const r = await ctx.tasks.run(`Updating ${updates.length} files`, (t) => content.applyUpdates(id, updates, t.update), { instanceId: id });
     return { ...r, blockedSession: startBlockedSession(id, r.blocked) };
+  });
+  handle('content:updateCandidates', async (id, q) => content.updateCandidates(id, q));
+  handle('content:updateHistory', async (id) => content.updateHistory(id));
+  handle('content:undoUpdate', async (id, stamp) => {
+    if (running.has(id)) throw new Error('Close the game before undoing an update.');
+    return ctx.tasks.run('Undoing update', () => content.undoUpdate(id, stamp), { instanceId: id });
   });
   handle('content:install', async (id, { source, projectId, type, versionId, title }) => {
     const r = await ctx.tasks.run(`Installing ${title || 'content'}`, (t) => content.installProject(id, { source, id: projectId }, type, { versionId, report: t.update }), { instanceId: id });
