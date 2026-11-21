@@ -1,9 +1,10 @@
 'use strict';
-// The account chip in the sidebar and the Accounts page. Plain script: shares one global scope with the other src/renderer files (load order is in index.html).
+// The account chip in the sidebar and the menu it opens. Plain script: shares one global scope with the other src/renderer files (load order is in index.html).
 
 // ---------------------------------------------------------------- account chip
 async function renderAccountChip() {
   const chip = $('#account-chip');
+  chip.setAttribute('aria-haspopup', 'menu');
   try {
     const { accounts } = await call('accounts:list');
     const active = accounts.find((a) => a.active);
@@ -12,41 +13,109 @@ async function renderAccountChip() {
       h('div', { class: 'grow' },
         h('div', { class: 'a-name ellipsis' }, active ? active.name : 'No account'),
         h('div', { class: 'a-sub' }, active ? (active.type === 'msa' ? 'Microsoft' : 'Offline') : 'Click to add one')),
-    );
+      icon('chevronDown', 14));
   } catch { /* ignore */ }
-  chip.onclick = () => go('accounts');
+  chip.onclick = () => (closeAccountMenu() ? null : openAccountMenu(chip));
 }
 
-// ---------------------------------------------------------------- accounts
-async function renderAccounts(_p, token) {
-  const { accounts, canAddOffline } = await call('accounts:list');
-  const info = state.info || (state.info = await call('app:info'));
-  if (stale(token)) return;
-  const offlineName = h('input', { type: 'text', placeholder: 'Player name', maxlength: 16 });
-  view().replaceChildren(h('div', { class: 'page', style: { maxWidth: '820px' } },
-    h('div', { class: 'page-head' }, h('h1', null, 'Accounts'),
-      h('button', { class: 'btn primary', type: 'button', onclick: () => microsoftLogin() }, icon('login'), 'Add Microsoft account')),
-    !info.msConfigured ? h('div', { class: 'notice warn' }, icon('alert'), h('div', { class: 'grow' },
-      h('div', null, 'Microsoft sign-in needs an Azure app (client) ID before it can work.'),
-      h('div', { class: 'hint' }, 'Mojang must approve new launcher apps. The README walks you through registering one (free) and requesting approval.')),
-    h('button', { class: 'btn sm', type: 'button', onclick: () => go('settings') }, 'Settings')) : null,
-    accounts.length ? h('div', { class: 'list' }, accounts.map((a) => h('div', { class: 'item', style: { gridTemplateColumns: '34px 1fr auto auto' } },
-      avatar({ name: a.name }, 'sm'),
-      h('div', null, h('div', { class: 'i-title' }, a.name, a.active ? h('span', { class: 'badge good plain', style: { marginLeft: '8px' } }, 'Active') : null,
-        a.needsRelogin ? h('span', { class: 'badge bad plain', style: { marginLeft: '8px' } }, 'Sign in again') : null),
-      h('div', { class: 'i-file' }, `${a.type === 'msa' ? 'Microsoft account' : 'Offline account'} · ${a.uuid}`)),
-      a.active ? h('span') : h('button', { class: 'btn sm', type: 'button', onclick: async () => { await call('accounts:setActive', a.id); renderAccountChip(); go('accounts'); } }, 'Use'),
-      h('button', { class: 'btn sm ghost danger', type: 'button', onclick: async () => {
+let accountMenu = null;
+
+/** Closes the account menu. Returns true if one was open. */
+function closeAccountMenu({ refocus = false } = {}) {
+  if (!accountMenu) return false;
+  const { el, off } = accountMenu;
+  accountMenu = null;
+  el.remove();
+  document.removeEventListener('mousedown', off.mouse, true);
+  document.removeEventListener('keydown', off.key, true);
+  const chip = $('#account-chip');
+  chip.setAttribute('aria-expanded', 'false');
+  if (refocus) chip.focus();
+  return true;
+}
+
+async function openAccountMenu(chip) {
+  let data;
+  let info;
+  try {
+    data = await call('accounts:list');
+    info = state.info || (state.info = await call('app:info'));
+  } catch (e) { toast(e.message, 'error'); return; }
+  const { accounts, canAddOffline } = data;
+  const rows = accounts.map((a) => h('div', { class: `acct-row ${a.active ? 'active' : ''}` },
+    h('button', {
+      type: 'button', role: 'menuitemradio', 'aria-checked': a.active ? 'true' : 'false', class: 'acct-main',
+      title: a.active ? 'The account Minecraft starts with' : `Switch to ${a.name}`,
+      onclick: async () => {
+        closeAccountMenu({ refocus: true });
+        if (!a.active) { try { await call('accounts:setActive', a.id); } catch (e) { toast(e.message, 'error'); } renderAccountChip(); }
+      },
+    }, avatar({ name: a.name }, 'xs'),
+    h('div', { class: 'grow' },
+      h('div', { class: 'a-name ellipsis' }, a.name),
+      h('div', { class: 'a-sub' }, a.needsRelogin ? 'Microsoft · sign in again' : (a.type === 'msa' ? 'Microsoft' : 'Offline'))),
+    a.active ? h('span', { class: 'badge good plain' }, icon('check', 12), 'Active') : null),
+    h('button', {
+      type: 'button', class: 'btn ghost sm danger icon', title: `Remove ${a.name}`, 'aria-label': `Remove ${a.name}`,
+      onclick: async () => {
+        closeAccountMenu();
         if (!(await confirmDialog(`Remove ${a.name}?`, 'You can sign in again any time.', 'Remove', true))) return;
-        await call('accounts:remove', a.id); renderAccountChip(); go('accounts');
-      } }, icon('trash', 14))))) : h('div', { class: 'empty' }, h('h2', null, 'No accounts'), h('div', null, 'Sign in with the Microsoft account you bought Minecraft with.')),
-    h('div', { class: 'section', style: { marginTop: '18px' } }, h('h3', null, 'Offline account'),
-      h('p', null, canAddOffline ? 'For singleplayer and offline-mode LAN servers. Online servers will reject it.' : 'Unlocks after you add a Microsoft account that owns Minecraft. Offline accounts can\'t join online servers.'),
-      h('div', { class: 'row' }, offlineName, h('button', { class: 'btn', type: 'button', disabled: !canAddOffline, onclick: async () => {
-        try { await call('accounts:addOffline', offlineName.value); renderAccountChip(); go('accounts'); } catch (e) { toast(e.message, 'error'); }
-      } }, icon('plus'), 'Add'))),
-    h('p', { class: 'hint' }, info.encryption ? 'Sign-in tokens are encrypted with your operating system\'s keychain.' : 'Your OS keychain is not available, so tokens are stored obfuscated, not encrypted.'),
-  ));
+        try { await call('accounts:remove', a.id); } catch (e) { toast(e.message, 'error'); }
+        renderAccountChip();
+      },
+    }, icon('trash', 14))));
+  const el = h('div', { class: 'acct-menu', role: 'menu', 'aria-label': 'Accounts' },
+    accounts.length ? h('div', { class: 'acct-list' }, rows) : h('div', { class: 'acct-empty' }, 'No accounts yet. Sign in with the Microsoft account you bought Minecraft with.'),
+    h('hr'),
+    h('button', { type: 'button', role: 'menuitem', class: 'acct-add', onclick: () => { closeAccountMenu(); microsoftLogin(); } }, icon('login'), 'Add Microsoft account'),
+    h('button', {
+      type: 'button', role: 'menuitem', class: 'acct-add', disabled: !canAddOffline,
+      title: canAddOffline ? 'For singleplayer and offline-mode LAN servers' : 'Unlocks after you add a Microsoft account that owns Minecraft',
+      onclick: () => { closeAccountMenu(); offlineAccountDialog(); },
+    }, icon('plus'), 'Add offline account'),
+    canAddOffline ? null : h('div', { class: 'acct-hint' }, 'Offline accounts unlock after you add a Microsoft account that owns Minecraft.'),
+    h('div', { class: 'acct-hint' }, info.encryption ? 'Sign-in tokens are encrypted with your operating system\'s keychain.' : 'Your OS keychain is not available, so tokens are stored obfuscated, not encrypted.'));
+  document.body.append(el);
+  const r = chip.getBoundingClientRect();
+  el.style.left = `${Math.max(8, r.left)}px`;
+  el.style.width = `${Math.max(280, r.width)}px`;
+  el.style.bottom = `${window.innerHeight - r.top + 6}px`;
+  chip.setAttribute('aria-expanded', 'true');
+  const items = () => [...el.querySelectorAll('button:not(:disabled)')];
+  const off = {
+    mouse: (e) => { if (!el.contains(e.target) && !chip.contains(e.target)) closeAccountMenu(); },
+    key: (e) => {
+      if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); closeAccountMenu({ refocus: true }); return; }
+      if (e.key === 'Tab' && !el.contains(document.activeElement)) { closeAccountMenu(); return; }
+      if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp' && e.key !== 'Home' && e.key !== 'End') return;
+      e.preventDefault();
+      const list = items();
+      const i = list.indexOf(document.activeElement);
+      const next = e.key === 'Home' ? 0 : e.key === 'End' ? list.length - 1 : (i + (e.key === 'ArrowDown' ? 1 : -1) + list.length) % list.length;
+      list[next]?.focus();
+    },
+  };
+  document.addEventListener('mousedown', off.mouse, true);
+  document.addEventListener('keydown', off.key, true);
+  accountMenu = { el, off };
+  (el.querySelector('.acct-row.active .acct-main') || items()[0])?.focus();
+}
+
+function offlineAccountDialog() {
+  const name = h('input', { type: 'text', placeholder: 'Player name', maxlength: 16, style: { width: '100%' } });
+  const m = modal({
+    title: 'Add offline account',
+    body: [
+      h('p', { style: { margin: 0, color: 'var(--muted)', lineHeight: 1.5 } }, 'For singleplayer and offline-mode LAN servers. Online servers will reject it.'),
+      name,
+    ],
+    actions: [
+      { label: 'Cancel', class: 'ghost' },
+      { label: 'Add', class: 'primary', icon: 'plus', onClick: async () => { await call('accounts:addOffline', name.value); renderAccountChip(); } },
+    ],
+  });
+  name.addEventListener('keydown', (e) => { if (e.key === 'Enter') m.el.querySelectorAll('.m-foot .btn')[1].click(); });
+  name.focus();
 }
 
 async function microsoftLogin() {
@@ -78,7 +147,6 @@ async function microsoftLogin() {
     m.close();
     toast(`Signed in as ${acc.name}`, 'good');
     renderAccountChip();
-    if (state.view === 'accounts') go('accounts');
   } catch (e) {
     done = true;
     if (e.code !== 'CANCELLED') {

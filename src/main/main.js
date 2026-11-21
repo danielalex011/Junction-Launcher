@@ -9,6 +9,7 @@ const { createContext } = require('../core/context');
 const { Accounts } = require('../core/auth/accounts');
 const { Instances } = require('../core/instances');
 const { createSources, searchAll, compatibleLoaders } = require('../core/sources');
+const { Home } = require('../core/home');
 const { compareSources } = require('../core/sources/choose');
 const { ContentManager } = require('../core/content/manager');
 const { Modpacks } = require('../core/content/modpacks');
@@ -24,7 +25,7 @@ const { HttpError, describeError } = require('../core/http');
 
 const VERSION = require('../../package.json').version;
 let win = null;
-let ctx; let accounts; let instances; let sources; let content; let modpacks;
+let ctx; let accounts; let instances; let sources; let content; let modpacks; let home;
 const running = new Map();
 const blockedSessions = new Map();
 let pendingOpenFiles = [];
@@ -230,10 +231,17 @@ function registerIpc() {
     return ctx.tasks.run('Adding files', () => content.addLocalFiles(id, r.filePaths, type), { instanceId: id });
   });
   handle('content:identify', async (id) => ctx.tasks.run('Identifying files', (t) => content.identify(id, null, t.update), { instanceId: id }));
-  handle('content:checkUpdates', async (id) => ctx.tasks.run('Checking for updates', () => content.checkUpdates(id), { instanceId: id }));
+  handle('content:checkUpdates', async (id) => {
+    const r = await ctx.tasks.run('Checking for updates', () => content.checkUpdates(id), { instanceId: id });
+    home.record(id, r.filter((u) => !u.error).length).catch(() => {}); // keeps Home's "Updates available" in step
+    return r;
+  });
+  handle('home:state', async () => home.state());
+  handle('home:refresh', async (opts) => { await home.refresh(opts || {}); return home.state(); });
   handle('content:applyUpdates', async (id, updates) => {
     if (running.has(id)) throw new Error('Close the game before updating its mods.');
     const r = await ctx.tasks.run(`Updating ${updates.length} files`, (t) => content.applyUpdates(id, updates, t.update), { instanceId: id, kind: 'update', icon: 'mod' });
+    home.record(id, 0).catch(() => {});
     return { ...r, blockedSession: startBlockedSession(id, r.blocked) };
   });
   handle('content:updateCandidates', async (id, q) => content.updateCandidates(id, q));
@@ -485,6 +493,7 @@ app.whenReady().then(async () => {
   sources = createSources(ctx);
   content = new ContentManager(ctx, instances, sources);
   modpacks = new Modpacks(ctx, instances, content, sources);
+  home = new Home(ctx, instances, content, sources);
   ctx.tasks.on('update', (t) => send('task:update', t));
   ctx.tasks.on('history', (list) => send('task:history', list));
   protocol.handle('junction-icon', async (req) => {

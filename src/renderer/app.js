@@ -3,7 +3,7 @@
 
 // ---------------------------------------------------------------- state
 const state = {
-  view: 'library',
+  view: 'home',
   params: {},
   info: null,
   settings: null,
@@ -22,9 +22,9 @@ async function loadMcVersions(snapshots = false) {
 
 // ---------------------------------------------------------------- navigation
 const NAV = [
+  { id: 'home', label: 'Home', icon: 'home' },
   { id: 'library', label: 'Library', icon: 'grid' },
   { id: 'browse', label: 'Browse', icon: 'compass' },
-  { id: 'accounts', label: 'Accounts', icon: 'user' },
   { id: 'settings', label: 'Settings', icon: 'sliders' },
 ];
 
@@ -44,7 +44,7 @@ async function go(viewName, params = {}) {
   renderNav();
   const token = ++renderToken;
   view().scrollTop = 0;
-  const pages = { library: renderLibrary, instance: renderInstance, browse: renderBrowse, accounts: renderAccounts, settings: renderSettings };
+  const pages = { home: renderHome, library: renderLibrary, instance: renderInstance, browse: renderBrowse, settings: renderSettings };
   try {
     await pages[viewName](params, token);
   } catch (e) {
@@ -81,7 +81,7 @@ on('app:openFiles', (files) => { for (const f of files) importPackFile(f); });
   }
   renderNav();
   renderAccountChip();
-  go('library');
+  go('home');
   initActivity();
   const snap = await call('tasks:list').catch(() => ({ active: [], history: [] }));
   for (const t of snap.active) state.tasks.set(t.id, t);

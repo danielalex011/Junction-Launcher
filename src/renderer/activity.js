@@ -268,8 +268,8 @@ async function play(inst) {
     await call('inst:launch', inst.id);
   } catch (e) {
     if (e.code === 'NO_ACCOUNT') {
-      const ok = await confirmDialog('Add an account first', 'You need a Microsoft account that owns Minecraft to play.', 'Go to Accounts');
-      if (ok) go('accounts');
+      const ok = await confirmDialog('Add an account first', 'You need a Microsoft account that owns Minecraft to play.', 'Add account');
+      if (ok) openAccountMenu($('#account-chip'));
     } else if (e.code === 'NO_CLIENT_ID') {
       toast(e.message, 'error');
       go('settings');
@@ -294,7 +294,7 @@ on('inst:state', ({ id, state: st, exit, error }) => {
     toast(`Minecraft exited with code ${exit.code}.${exit.crashReport ? ' A crash report was written — see the Logs tab.' : ''}`, 'error');
   }
   if (error && !/already running/.test(error)) { /* already toasted by caller */ }
-  if (state.view === 'library') go('library');
+  if (state.view === 'library' || state.view === 'home') go(state.view);
   if (state.view === 'instance' && state.params.id === id) refreshInstanceHeader();
 });
 

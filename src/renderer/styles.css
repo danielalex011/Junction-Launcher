@@ -100,6 +100,21 @@ a { color: var(--accent); }
 .account-chip:hover { border-color: #3a4150; }
 .account-chip .a-name { font-weight: 600; font-size: 13px; }
 .account-chip .a-sub { color: var(--muted); font-size: 11px; }
+.account-chip .ico { color: var(--muted); }
+.account-chip[aria-expanded=true] { border-color: var(--accent); }
+.acct-menu { position: fixed; z-index: 60; background: var(--panel-2); border: 1px solid var(--border); border-radius: var(--radius); padding: 6px; box-shadow: 0 16px 40px rgba(0,0,0,.45); max-height: calc(100vh - 24px); overflow: auto; }
+.acct-menu hr { border: 0; border-top: 1px solid var(--border); margin: 6px 0; }
+.acct-row { display: flex; align-items: center; gap: 4px; border-radius: var(--radius-sm); }
+.acct-row.active { background: var(--panel-3); }
+.acct-main { flex: 1; min-width: 0; display: flex; align-items: center; gap: 10px; background: none; border: 0; border-radius: var(--radius-sm); padding: 7px 8px; cursor: pointer; text-align: left; }
+.acct-row:not(.active) .acct-main:hover { background: var(--panel-3); }
+.acct-main .a-name { font-weight: 600; font-size: 13px; }
+.acct-main .a-sub { color: var(--muted); font-size: 11px; }
+.acct-menu button:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.acct-add { display: flex; width: 100%; align-items: center; gap: 9px; background: none; border: 0; padding: 8px 10px; border-radius: 5px; cursor: pointer; text-align: left; }
+.acct-add:hover:not(:disabled) { background: var(--panel-3); }
+.acct-add:disabled { opacity: .5; cursor: not-allowed; }
+.acct-hint, .acct-empty { color: var(--muted); font-size: 12px; line-height: 1.45; padding: 4px 10px; }
 
 /* ---------- main ---------- */
 #view { overflow: auto; min-width: 0; position: relative; }
@@ -173,6 +188,16 @@ input[type=checkbox] { accent-color: var(--accent); width: 16px; height: 16px; }
 .badge.clickable { cursor: pointer; }
 .pill { font-size: 11px; padding: 2px 7px; border-radius: 5px; background: var(--panel-3); color: var(--muted); }
 
+/* ---------- home ---------- */
+.home-sec { margin-bottom: 30px; }
+.home-sec-head { display: flex; align-items: center; gap: 12px; margin-bottom: 12px; }
+.home-sec-head h2 { font-size: 17px; margin: 0; font-weight: 700; }
+.home-sec-head .btn:last-child { margin-left: auto; }
+.home-recent, .home-popular { display: grid; grid-template-columns: repeat(auto-fill, minmax(290px, 1fr)); gap: 14px; }
+.home-card .home-sum { color: var(--muted); font-size: 12px; line-height: 1.45; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; min-height: 35px; }
+.list .item.home-upd { grid-template-columns: 1fr auto; }
+.home-note { color: var(--muted); padding: 14px 4px; }
+
 /* ---------- library ---------- */
 .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(290px, 1fr)); gap: 14px; }
 .card { background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius); padding: 14px; cursor: pointer; display: flex; flex-direction: column; gap: 12px; transition: border-color .12s, transform .12s; }
@@ -182,7 +207,7 @@ input[type=checkbox] { accent-color: var(--accent); width: 16px; height: 16px; }
 .card .c-sub { color: var(--muted); font-size: 12px; margin-top: 2px; overflow-wrap: anywhere; }
 .card .c-foot > .row { white-space: nowrap; min-width: 0; }
 .card .c-foot > .btn { flex-shrink: 0; }
-.card .c-foot { display: flex; align-items: center; justify-content: space-between; gap: 8px; color: var(--faint); font-size: 12px; }
+.card .c-foot { margin-top: auto; display: flex; align-items: center; justify-content: space-between; gap: 8px; color: var(--faint); font-size: 12px; }
 .avatar { width: 48px; height: 48px; border-radius: 10px; flex: none; object-fit: cover; background: var(--panel-3); display: flex; align-items: center; justify-content: center; font-weight: 800; font-size: 20px; color: #0b0d12; }
 .avatar.sm { width: 34px; height: 34px; border-radius: 8px; font-size: 14px; }
 .avatar.xs { width: 28px; height: 28px; border-radius: 6px; font-size: 12px; }

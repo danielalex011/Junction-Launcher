@@ -32,12 +32,14 @@ Get the latest version from the [Releases page](https://github.com/danielalex011
 
 ## Getting started
 
-1. **Sign in.** Go to *Accounts → Add Microsoft account*. You'll get a short code to enter at microsoft.com/link. You sign in on Microsoft's own page, so your password never touches Junction.
+1. **Sign in.** Click the account box at the bottom of the sidebar and choose *Add Microsoft account*. You'll get a short code to enter at microsoft.com/link. You sign in on Microsoft's own page, so your password never touches Junction.
 2. **Get an instance:**
    - *Library → New instance* to start from scratch,
    - *Browse → Modpacks* to install a pack, or
    - *Import → Instances from other launchers* to bring your existing ones over.
 3. **Add mods** from the instance page, then press **Play**.
+
+Junction opens on **Home**: your most recently played instances with a Play button, instances that have mod updates waiting (checked in the background every few hours), and a few popular modpacks.
 
 Offline accounts (for singleplayer and LAN) become available after you've signed in with a Microsoft account that owns Minecraft: Java Edition.
 
