@@ -1,5 +1,6 @@
 'use strict';
-const { app, BrowserWindow, ipcMain, dialog, shell, safeStorage, Menu } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, shell, safeStorage, Menu, protocol, net } = require('electron');
+const { pathToFileURL } = require('url');
 const fs = require('fs');
 const path = require('path');
 const { marked } = require('marked');
@@ -24,6 +25,9 @@ let ctx; let accounts; let instances; let sources; let content; let modpacks;
 const running = new Map();
 const blockedSessions = new Map();
 let pendingOpenFiles = [];
+
+// Instance pictures stored on disk are shown through junction-icon://<instance-id>/
+protocol.registerSchemesAsPrivileged([{ scheme: 'junction-icon', privileges: { standard: true, secure: true, supportFetchAPI: true } }]);
 
 if (!app.requestSingleInstanceLock()) {
   app.quit();
@@ -108,8 +112,21 @@ function registerIpc() {
   });
 
   // --- instances
-  handle('inst:list', async () => (await instances.list()).map((i) => ({ ...i, running: running.has(i.id), state: running.get(i.id)?.state || null })));
-  handle('inst:get', async (id) => ({ ...(await instances.get(id)), running: running.has(id), state: running.get(id)?.state || null }));
+  const withState = (i) => ({
+    ...i,
+    running: running.has(i.id),
+    state: running.get(i.id)?.state || null,
+    iconSrc: typeof i.icon === 'string' && i.icon.startsWith('local:') ? `junction-icon://${i.id}/?v=${i.iconVersion || 0}` : (i.icon || null),
+  });
+  handle('inst:list', async () => (await instances.list()).map(withState));
+  handle('inst:get', async (id) => withState(await instances.get(id)));
+  handle('inst:pickIcon', async (id) => {
+    const r = await dialog.showOpenDialog(win, { title: 'Choose a picture for this instance', properties: ['openFile'], filters: [{ name: 'Images', extensions: ['png', 'jpg', 'jpeg', 'webp', 'gif'] }] });
+    if (r.canceled) return null;
+    return withState(await instances.setIconFromFile(id, r.filePaths[0]));
+  });
+  handle('inst:setIcon', async (id, filePath) => withState(await instances.setIconFromFile(id, filePath)));
+  handle('inst:clearIcon', async (id) => withState(await instances.clearIcon(id)));
   handle('inst:create', async (opts) => instances.create(opts));
   handle('inst:update', async (id, patch) => instances.update(id, patch));
   handle('inst:delete', async (id) => {
@@ -255,14 +272,19 @@ function registerIpc() {
     return detectInstance(r.filePaths[0]);
   });
   handle('import:scan', async () => {
-    const [found, mine] = await Promise.all([scanLaunchers(), instances.list()]);
+    let knownVersions = null;
+    try { knownVersions = new Set((await listGameVersions(ctx, { snapshots: true })).map((v) => v.id.toLowerCase())); } catch { /* offline: fall back to pattern checks */ }
+    const [{ instances: found, notes }, mine] = await Promise.all([scanLaunchers({ knownVersions }), instances.list()]);
     const imported = new Set(mine.map((i) => i.importedFrom).filter(Boolean).map((p) => path.resolve(p)));
     // Instances imported before Junction recorded the source folder: match on name + version.
     const byName = new Set(mine.map((i) => `${i.name.toLowerCase()}|${i.mcVersion}`));
-    return found.map((f) => ({
-      ...f,
-      alreadyImported: imported.has(path.resolve(f.folder)) || byName.has(`${String(f.name).toLowerCase()}|${f.mcVersion}`),
-    }));
+    return {
+      notes,
+      instances: found.map((f) => ({
+        ...f,
+        alreadyImported: imported.has(path.resolve(f.folder)) || byName.has(`${String(f.name).toLowerCase()}|${f.mcVersion}`),
+      })),
+    };
   });
   handle('import:detect', async (folder) => detectInstance(folder));
   handle('import:run', async (info, choices) => ctx.tasks.run(`Importing ${choices.name || info.name}`, (t) => importInstance({ instances, content }, info, choices, t.update)));
@@ -372,6 +394,12 @@ app.whenReady().then(async () => {
   content = new ContentManager(ctx, instances, sources);
   modpacks = new Modpacks(ctx, instances, content, sources);
   ctx.tasks.on('update', (t) => send('task:update', t));
+  protocol.handle('junction-icon', async (req) => {
+    const id = new URL(req.url).hostname;
+    const file = /^[a-z0-9-]+$/.test(id) ? await instances.iconFile(id) : null;
+    if (!file) return new Response('not found', { status: 404 });
+    return net.fetch(pathToFileURL(file).toString());
+  });
   pendingOpenFiles.push(...packFilesFromArgv(process.argv));
   registerIpc();
   createWindow();

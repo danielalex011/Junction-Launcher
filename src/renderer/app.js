@@ -106,7 +106,8 @@ const TYPES = { mod: 'Mods', modpack: 'Modpacks', resourcepack: 'Resource packs'
 const SRC = { modrinth: 'Modrinth', curseforge: 'CurseForge', local: 'Local', file: 'File' };
 
 function avatar(item, size = '') {
-  const url = item.icon && /^https:\/\//.test(item.icon) ? item.icon : null;
+  const src = item.iconSrc || item.icon;
+  const url = src && /^(https|junction-icon):\/\//.test(src) ? src : null;
   const label = (item.name || item.title || '?').trim();
   if (url) {
     const img = h('img', { class: `avatar ${size}`, src: url, alt: '', loading: 'lazy', referrerpolicy: 'no-referrer' });
@@ -218,7 +219,8 @@ function popupMenu(anchor, items) {
   const r = anchor.getBoundingClientRect();
   const mw = menu.offsetWidth;
   const mh = menu.offsetHeight;
-  menu.style.left = `${Math.max(8, Math.min(r.right - mw, window.innerWidth - mw - 8))}px`;
+  const leftEdge = r.left + r.width / 2 < window.innerWidth / 2 ? r.left : r.right - mw; // open toward the middle of the window
+  menu.style.left = `${Math.max(8, Math.min(leftEdge, window.innerWidth - mw - 8))}px`;
   menu.style.top = `${r.bottom + mh + 6 > window.innerHeight ? r.top - mh - 6 : r.bottom + 6}px`;
   setTimeout(() => document.addEventListener('mousedown', function off(e) {
     if (!menu.contains(e.target)) { menu.remove(); document.removeEventListener('mousedown', off); }
@@ -549,8 +551,9 @@ async function importFromLaunchers() {
   }
 
   let found;
+  let notes = [];
   try {
-    found = await call('import:scan');
+    ({ instances: found, notes } = await call('import:scan'));
   } catch (e) {
     listBox.replaceChildren(h('div', { class: 'notice warn' }, icon('alert'), e.message));
     return;
@@ -567,7 +570,7 @@ async function importFromLaunchers() {
     groups.get(f.launcher).push(f);
   }
   const rows = [];
-  listBox.replaceChildren(...[...groups.entries()].map(([launcher, list]) => {
+  listBox.replaceChildren(...notes.map((n) => h('div', { class: 'notice warn', style: { margin: 0 } }, icon('alert'), h('div', { class: 'small' }, n))), ...[...groups.entries()].map(([launcher, list]) => {
     const newOnes = list.filter((f) => f.mcVersion && !f.alreadyImported);
     const selAll = h('button', { class: 'btn ghost sm', type: 'button', onclick: () => {
       const allOn = newOnes.every((f) => selected.has(f.folder));
@@ -586,7 +589,8 @@ async function importFromLaunchers() {
           avatar({ name: f.name }, 'sm'),
           h('div', { style: { minWidth: 0 } },
             h('div', { class: 'i-title ellipsis', title: f.folder }, f.name),
-            h('div', { class: 'i-file ellipsis' }, `${loaderTxt} · ${f.mcVersion ? `Minecraft ${f.mcVersion}` : 'version unknown'} · ${f.modCount} mod${f.modCount === 1 ? '' : 's'}${f.exact || f.from !== 'folder' ? '' : ' · guessed'}`)),
+            h('div', { class: 'i-file ellipsis' }, `${loaderTxt} · ${f.mcVersion ? `Minecraft ${f.mcVersion}` : 'version unknown'} · ${f.modCount} mod${f.modCount === 1 ? '' : 's'}`,
+              f.mcVersion && f.detectedBy === 'name' ? h('span', { style: { color: 'var(--warn)' } }, ' · guessed from the name, check with Edit…') : null)),
           h('div', { class: 'row' },
             f.alreadyImported ? h('span', { class: 'badge plain', title: 'You imported this before. Importing again makes a second copy.' }, 'Already imported') : null,
             h('button', { class: `btn sm ${f.mcVersion ? 'ghost' : ''}`, type: 'button', onclick: (e) => { e.preventDefault(); e.stopPropagation(); m.close(); importFolderDialog(f); } }, f.mcVersion ? 'Edit…' : 'Set version…')));
@@ -671,8 +675,12 @@ async function renderInstance({ id, tab = 'mod' }, token) {
   ].filter((t) => !t.hide);
   const activeTab = tabs.find((t) => t.id === tab) ? tab : tabs[0].id;
   const content = h('div');
+  const iconBtn = h('button', {
+    class: 'avatar-edit', type: 'button', title: 'Change picture (or drop an image here)',
+    onclick: (e) => iconMenu(e.currentTarget, inst),
+  }, avatar(inst, 'lg'), h('span', { class: 'avatar-edit-hint' }, 'Change'));
   const head = h('div', { class: 'inst-head' },
-    avatar(inst, 'lg'),
+    iconBtn,
     h('div', { class: 'grow' },
       h('h1', { class: 'ellipsis' }, inst.name),
       h('div', { class: 'muted', style: { marginTop: '4px' } }, instSubtitle(inst)),
@@ -693,8 +701,31 @@ async function renderInstance({ id, tab = 'mod' }, token) {
   else await renderInstSettings(inst, content);
 }
 
+async function changeIcon(inst, filePath) {
+  try {
+    const r = filePath ? await call('inst:setIcon', inst.id, filePath) : await call('inst:pickIcon', inst.id);
+    if (!r) return;
+    toast('Picture updated', 'good');
+    if (state.view === 'instance' && state.params.id === inst.id) go('instance', state.params);
+    else if (state.view === 'library') go('library');
+  } catch (e) { toast(e.message, 'error'); }
+}
+
+function iconMenu(anchor, inst) {
+  const custom = typeof inst.icon === 'string' && inst.icon.startsWith('local:');
+  popupMenu(anchor, [
+    { label: 'Choose a picture…', icon: 'file', onClick: () => changeIcon(inst) },
+    ...(custom ? [{ label: inst.originalIcon ? 'Back to the modpack\'s picture' : 'Remove picture', icon: 'x', onClick: async () => {
+      await call('inst:clearIcon', inst.id);
+      go('instance', state.params);
+    } }] : []),
+  ]);
+}
+
 function instanceMenu(anchor, inst) {
   const items = [
+    { label: 'Change picture…', icon: 'file', onClick: () => changeIcon(inst) },
+    '-',
     { label: 'Export as Modrinth pack (.mrpack)', icon: 'upload', onClick: () => exportDialog(inst, 'mrpack') },
     { label: 'Export as CurseForge pack (.zip)', icon: 'upload', onClick: () => exportDialog(inst, 'curseforge') },
   ];
@@ -1446,8 +1477,9 @@ window.addEventListener('drop', async (e) => {
   document.body.classList.remove('dragging');
   const files = [...(e.dataTransfer?.files || [])].map((f) => window.junction.pathForFile(f)).filter(Boolean);
   for (const f of files) {
+    if (/\.(png|jpe?g|webp|gif)$/i.test(f) && state.view === 'instance' && currentInstance) { await changeIcon(currentInstance, f); continue; }
     if (/\.(mrpack|zip)$/i.test(f)) await importPackFile(f);
-    else toast(`Drop .mrpack or CurseForge .zip files here. To add mods, use “Add files” on an instance.`, 'warn');
+    else toast('Drop a .mrpack or CurseForge .zip to import it, or an image on an instance page to use it as its picture.', 'warn');
   }
 });
 

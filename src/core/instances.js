@@ -10,6 +10,7 @@ const { exists, readJson, writeJson, ensureDir, slugify, shortId, copyDir, hashF
 const { readModMetadata } = require('./content/metadata');
 
 const TYPE_DIR = { mod: 'mods', resourcepack: 'resourcepacks', shader: 'shaderpacks' };
+const ICON_EXT = ['.png', '.jpg', '.jpeg', '.webp', '.gif'];
 const DIR_TYPE = { mods: 'mod', resourcepacks: 'resourcepack', shaderpacks: 'shader' };
 const CONTENT_EXT = { mod: ['.jar'], resourcepack: ['.zip'], shader: ['.zip'] };
 
@@ -58,10 +59,40 @@ class Instances {
 
   async update(id, patch) {
     const inst = await this.get(id);
-    const allowed = ['name', 'mcVersion', 'loader', 'icon', 'pack', 'lastPlayed', 'playtimeMs', 'memoryMax', 'memoryMin', 'jvmArgs', 'javaPath', 'resolution', 'joinServer', 'notes', 'importedFrom'];
+    const allowed = ['name', 'mcVersion', 'loader', 'icon', 'pack', 'lastPlayed', 'playtimeMs', 'memoryMax', 'memoryMin', 'jvmArgs', 'javaPath', 'resolution', 'joinServer', 'notes', 'importedFrom', 'originalIcon', 'iconVersion'];
     for (const k of allowed) if (k in patch) inst[k] = patch[k];
     await writeJson(path.join(this.instDir(id), 'instance.json'), inst);
     return inst;
+  }
+
+  // ---- icons -----------------------------------------------------------------
+  // inst.icon is either an https URL (from a modpack) or "local:<file>" for an
+  // image stored in the instance folder.
+
+  async iconFile(id) {
+    const inst = await this.get(id).catch(() => null);
+    if (!inst || typeof inst.icon !== 'string' || !inst.icon.startsWith('local:')) return null;
+    const file = path.join(this.instDir(id), path.basename(inst.icon.slice(6)));
+    return (await exists(file)) ? file : null;
+  }
+
+  async setIconFromFile(id, src) {
+    const ext = path.extname(src).toLowerCase();
+    if (!ICON_EXT.includes(ext)) throw new Error('Pick a PNG, JPG, WebP or GIF image.');
+    const st = await fsp.stat(src);
+    if (st.size > 10 * 1024 * 1024) throw new Error('That image is over 10 MB. Pick a smaller one.');
+    const inst = await this.get(id);
+    for (const e of ICON_EXT) await fsp.rm(path.join(this.instDir(id), `icon${e}`), { force: true });
+    await fsp.copyFile(src, path.join(this.instDir(id), `icon${ext}`));
+    const patch = { icon: `local:icon${ext}`, iconVersion: Date.now() };
+    if (inst.icon && /^https:\/\//.test(inst.icon) && !inst.originalIcon) patch.originalIcon = inst.icon;
+    return this.update(id, patch);
+  }
+
+  async clearIcon(id) {
+    const inst = await this.get(id);
+    for (const e of ICON_EXT) await fsp.rm(path.join(this.instDir(id), `icon${e}`), { force: true });
+    return this.update(id, { icon: inst.originalIcon || null, iconVersion: Date.now() });
   }
 
   async remove(id) {
@@ -175,4 +206,4 @@ class Instances {
   }
 }
 
-module.exports = { Instances, TYPE_DIR, DIR_TYPE, CONTENT_EXT };
+module.exports = { Instances, TYPE_DIR, DIR_TYPE, CONTENT_EXT, ICON_EXT };
