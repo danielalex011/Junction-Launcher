@@ -49,7 +49,8 @@ function normalizeProject(p) {
     links: {
       source: p.source_url, issues: p.issues_url, wiki: p.wiki_url, discord: p.discord_url,
     },
-    gallery: (p.gallery || []).map((g) => ({ url: g.url, title: g.title })),
+    gallery: (p.gallery || []).map((g) => ({ url: g.url, title: g.title, featured: Boolean(g.featured) })),
+    team: p.team || null,
   };
 }
 
@@ -100,6 +101,21 @@ class Modrinth {
     for (let i = 0; i < ids.length; i += 100) {
       const chunk = ids.slice(i, i + 100);
       out.push(...(await this.ctx.http.json(`${API}/projects?ids=${enc(JSON.stringify(chunk))}`)).map(normalizeProject));
+    }
+    return out;
+  }
+
+  /** team id -> owner's user name, for many teams in one request per 100. */
+  async teamOwners(teamIds) {
+    const out = {};
+    for (let i = 0; i < teamIds.length; i += 100) {
+      const chunk = teamIds.slice(i, i + 100);
+      const teams = await this.ctx.http.json(`${API}/teams?ids=${enc(JSON.stringify(chunk))}`);
+      for (const members of teams || []) {
+        if (!members?.length) continue;
+        const owner = members.find((m) => m.is_owner) || members.find((m) => m.role === 'Owner') || members[0];
+        if (owner?.team_id && owner.user?.username) out[owner.team_id] = owner.user.username;
+      }
     }
     return out;
   }

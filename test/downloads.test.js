@@ -273,7 +273,7 @@ test('repair: re-downloads missing or damaged pack files and leaves configs and 
   const packRequests = api.hits.pack;
 
   const rep = await modpacks.repair(id);
-  assert.equal(api.hits.pack, packRequests + 1, 'the pack index was downloaded again');
+  assert.equal(api.hits.pack, packRequests, 'the pack archive came from the cache (verified by hash)');
   assert.equal(rep.checked, 5);
   assert.deepEqual(rep.repaired.sort(), ['mods/a.jar', 'mods/c.jar', 'mods/e.jar']);
   assert.equal(rep.ok, 2);

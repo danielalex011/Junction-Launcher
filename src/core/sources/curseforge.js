@@ -45,6 +45,7 @@ function normalizeMod(m) {
     latestFilesIndexes: idx,
     links: { source: m.links?.sourceUrl, issues: m.links?.issuesUrl, wiki: m.links?.wikiUrl },
     gallery: (m.screenshots || []).map((s) => ({ url: s.url, title: s.title })),
+    authors: (m.authors || []).map((a) => a.name).filter(Boolean),
   };
 }
 
@@ -145,6 +146,12 @@ class CurseForge {
     let out = all;
     if (loaders?.length > 1) out = all.filter((f) => !f.loaders.length || f.loaders.some((l) => loaders.includes(l)));
     return out.sort((a, b) => new Date(b.date) - new Date(a.date));
+  }
+
+  /** The changelog (HTML) of one file. */
+  async changelog(modId, fileId) {
+    const r = await this.get(`/v1/mods/${enc(modId)}/files/${enc(fileId)}/changelog`);
+    return r.data || '';
   }
 
   async files(fileIds) {

@@ -21,7 +21,8 @@ function parseModsToml(text) {
   const rest = text.slice(idx + 8);
   const end = rest.search(/^\s*\[/m);
   const section = end === -1 ? rest : rest.slice(0, end);
-  return { modId: tomlValue(section, 'modId'), name: tomlValue(section, 'displayName'), version: tomlValue(section, 'version') };
+  const authors = tomlValue(text, 'authors') || tomlValue(section, 'authors');
+  return { modId: tomlValue(section, 'modId'), name: tomlValue(section, 'displayName'), version: tomlValue(section, 'version'), ...(authors ? { authors: [String(authors).split(',')[0].trim()] } : {}) };
 }
 
 function manifestVersion(zip) {
@@ -42,7 +43,8 @@ function readModMetadata(file) {
     const fabric = read('fabric.mod.json');
     if (fabric) {
       const j = parseLooseJson(fabric);
-      return { loader: 'fabric', modId: j.id, name: j.name || j.id, version: j.version, environment: j.environment };
+      const authors = (Array.isArray(j.authors) ? j.authors : []).map((a) => (typeof a === 'string' ? a : a?.name)).filter((a) => typeof a === 'string' && a).slice(0, 3);
+      return { loader: 'fabric', modId: j.id, name: j.name || j.id, version: j.version, environment: j.environment, ...(authors.length ? { authors } : {}) };
     }
     const quilt = read('quilt.mod.json');
     if (quilt) {
@@ -56,7 +58,7 @@ function readModMetadata(file) {
       if (!m) continue;
       let { version } = m;
       if (!version || version.includes('${')) version = manifestVersion(zip) || version;
-      return { loader, modId: m.modId, name: m.name || m.modId, version };
+      return { loader, modId: m.modId, name: m.name || m.modId, version, ...(m.authors ? { authors: m.authors } : {}) };
     }
     const mcmod = read('mcmod.info');
     if (mcmod) {

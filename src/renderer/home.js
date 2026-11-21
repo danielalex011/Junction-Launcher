@@ -58,7 +58,10 @@ function drawHome(d) {
       h('div', { class: 'c-top' }, avatar(u),
         h('div', { class: 'grow' },
           h('div', { class: 'c-name', title: u.name }, u.name),
-          h('div', { class: 'c-sub' }, `${u.count} update${u.count === 1 ? '' : 's'}`))),
+          h('div', { class: 'c-sub' }, [
+            u.pack ? `${u.pack.versionName} available` : null,
+            u.count ? `${u.count} ${u.pack ? 'mod ' : ''}update${u.count === 1 ? '' : 's'}` : null,
+          ].filter(Boolean).join(' · ')))),
       h('div', { class: 'c-foot' },
         h('span', null),
         h('button', { class: 'btn sm primary', type: 'button', onclick: (e) => reviewHomeUpdates(u, e.currentTarget) }, icon('arrowUp'), 'Review'))));
@@ -100,6 +103,8 @@ function popularCard(hit) {
 
 /** Runs a fresh check for that instance (it is the quick path, one instance only), then opens the normal review window. */
 async function reviewHomeUpdates(u, btn) {
+  // A new modpack version: its review window lives on the instance page.
+  if (u.pack) { go('instance', { id: u.instanceId, review: u.pack.versionId }); return; }
   btn.disabled = true;
   try {
     const inst = await call('inst:get', u.instanceId);

@@ -5,7 +5,7 @@
 let contentKeyHandler = null;
 
 function typeNoun(type, n) {
-  const one = { mod: 'mod', resourcepack: 'resource pack', shader: 'shader' }[type] || 'file';
+  const one = { mod: 'mod', resourcepack: 'resource pack', shader: 'shader', datapack: 'data pack' }[type] || 'file';
   return n === 1 ? one : `${one}s`;
 }
 
@@ -28,6 +28,21 @@ async function renderContentTab(inst, type, root, token) {
   const updateBtn = h('button', { class: 'btn', type: 'button' }, icon('refresh'), 'Check for updates');
   const updateAllBtn = h('button', { class: 'btn primary', type: 'button', style: { display: 'none' } }, icon('arrowUp'), 'Update all');
   const notices = h('div');
+  // A linked modpack: the pack's files are the bottom layer (locked), your additions sit on top.
+  const linked = Boolean(inst.linked);
+  const packName = inst.pack?.name || 'the modpack';
+  let origin = 'all'; // all | pack | mine | changed | off
+  let authors = {};
+  const isLocked = (i) => linked && i.fromPack;
+  const chips = h('div', { class: 'chips' });
+  const ORIGINS = [
+    ['all', 'All', () => true],
+    ['pack', 'From the pack', (i) => i.fromPack],
+    ['mine', 'Added by you', (i) => !i.fromPack],
+    ['changed', 'Changed', (i) => i.fromPack && i.packChanged],
+    ['off', 'Turned off', (i) => !i.enabled],
+  ];
+  const originPred = () => (ORIGINS.find((o) => o[0] === origin) || ORIGINS[0])[2];
 
   const noun = (n) => typeNoun(type, n);
   const refresh = () => renderContentTab(inst, type, root, renderToken);
@@ -40,7 +55,12 @@ async function renderContentTab(inst, type, root, token) {
   };
 
   // ---- selection --------------------------------------------------------
-  const shownItems = () => items.filter((i) => !filter || `${i.title} ${i.fileName} ${i.modId || ''}`.toLowerCase().includes(filter));
+  const shownItems = () => {
+    const pred = linked ? originPred() : () => true;
+    const list = items.filter((i) => pred(i) && (!filter || `${i.title} ${i.fileName} ${i.modId || ''} ${authors[i.file] || ''}`.toLowerCase().includes(filter)));
+    // Your additions on top, the pack underneath.
+    return linked ? [...list.filter((i) => !i.fromPack), ...list.filter((i) => i.fromPack)] : list;
+  };
   const selectedItems = () => items.filter((i) => selected.has(i.file));
 
   const renderBar = () => {
@@ -149,7 +169,7 @@ async function renderContentTab(inst, type, root, token) {
 
   // ---- smart select -----------------------------------------------------
   const applySmart = (pred, label) => {
-    const hit = items.filter(pred);
+    const hit = items.filter((i) => pred(i) && !isLocked(i));
     if (!hit.length) { toast(`No ${noun(2)} match “${label}”.`, 'info'); return; }
     selected.clear();
     for (const i of hit) selected.add(i.file);
@@ -157,7 +177,7 @@ async function renderContentTab(inst, type, root, token) {
     syncSelection();
   };
   const smartMenu = (anchorEl) => {
-    const count = (p) => items.filter(p).length;
+    const count = (p) => items.filter((i) => p(i) && !isLocked(i)).length;
     const entry = (label, pred, ic, opts = {}) => ({
       label: `${label}${opts.count === false ? '' : ` (${count(pred)})`}`, icon: ic,
       onClick: () => act(async () => { if (opts.needsCheck && !checked) await runCheck(); applySmart(pred, label); }),
@@ -179,12 +199,19 @@ async function renderContentTab(inst, type, root, token) {
     const have = new Set(items.map((i) => i.file));
     for (const f of [...selected]) if (!have.has(f)) selected.delete(f);
     const shown = shownItems();
-    shownFiles = shown.map((i) => i.file);
+    shownFiles = shown.filter((i) => !isLocked(i)).map((i) => i.file); // pack files are left out of multi-select
     rowEls = new Map();
     headBox = null;
     countLabel.textContent = `${items.length} ${type === 'mod' ? 'mods' : 'files'}${items.filter((i) => !i.enabled).length ? ` · ${items.filter((i) => !i.enabled).length} disabled` : ''}`;
+    if (linked) {
+      chips.replaceChildren(...ORIGINS.map(([key, label, pred]) => {
+        const n = items.filter(pred).length;
+        if (key === 'changed' && !n && origin !== 'changed') return null;
+        return h('button', { type: 'button', class: `chip ${origin === key ? 'on' : ''}`, onclick: () => { origin = key; renderList(); } }, label, h('span', { class: 'count' }, String(n)));
+      }));
+    }
     const dups = items.filter((i) => i.duplicateOf);
-    const unknown = items.filter((i) => i.source === 'local');
+    const unknown = items.filter((i) => i.source === 'local' && !isLocked(i));
     notices.replaceChildren(
       dups.length ? h('div', { class: 'notice warn' }, icon('alert'), h('div', null,
         h('div', null, `${dups.length} duplicate mod${dups.length > 1 ? 's' : ''} found (the same mod installed twice, e.g. from both Modrinth and CurseForge). Minecraft will refuse to start like this.`),
@@ -203,7 +230,8 @@ async function renderContentTab(inst, type, root, token) {
       syncSelection();
       return;
     }
-    headBox = h('input', { type: 'checkbox', title: 'Select everything shown', onclick: (e) => toggleShown(e.currentTarget.checked) });
+    headBox = h('input', { type: 'checkbox', title: linked ? 'Select everything shown that you added' : 'Select everything shown', onclick: (e) => toggleShown(e.currentTarget.checked) });
+    if (linked) { listBox.replaceChildren(h('div', { class: 'list content-list pack-list' }, packHead(), packRows(shown))); syncSelection(); return; }
     const head = h('div', { class: 'item content-head' },
       headBox,
       h('button', { class: 'btn ghost icon sm', type: 'button', title: 'Smart select…', onclick: (e) => smartMenu(e.currentTarget) }, icon('chevronDown', 14)),
@@ -258,6 +286,94 @@ async function renderContentTab(inst, type, root, token) {
     syncSelection();
   };
 
+  // ---- the linked-modpack list -------------------------------------------
+  const sideBadge = (side) => (side ? h('span', { class: `badge plain side-${side}`, title: { client: 'Only needed on your computer', server: 'Only needed on a server', both: 'Needed on both' }[side] }, { client: 'Client', server: 'Server', both: 'Both' }[side]) : h('span', { class: 'faint' }, '—'));
+  const packHead = () => h('div', { class: 'item content-head' },
+    headBox,
+    h('button', { class: 'btn ghost icon sm', type: 'button', title: 'Smart select (your additions)…', onclick: (e) => smartMenu(e.currentTarget) }, icon('chevronDown', 14)),
+    h('div'),
+    h('div', null, 'Name'),
+    h('div', null, 'Author'),
+    h('div', null, 'Side'),
+    h('div', null, 'Version'),
+    h('div', { class: 'c-switch' }, 'Enabled'),
+    h('div'));
+  const lockMenu = (anchorEl, it) => popupMenu(anchorEl, [
+    ...(it.packChanged ? [{ label: 'Restore pack version', icon: 'refresh', onClick: () => act(async () => {
+      const r = await call('pack:restoreFile', inst.id, it.file);
+      toast(`Restored the pack's ${r.restored.split('/').pop()}`, 'good');
+      items = await call('content:list', inst.id, type);
+      renderList();
+    }) }] : []),
+    ...(it.url ? [{ label: `Open on ${SRC[it.source]}`, icon: 'external', onClick: () => call('shell:open', it.url) }] : []),
+    { label: 'Why is this locked?', icon: 'lock', onClick: () => toast(`${it.title} is part of ${packName}, so it changes only with pack updates. You can turn it off if it causes problems; that choice is kept when the pack updates. To change it anyway, unlink the modpack in Settings.`, 'info', 10000) },
+  ]);
+  const packRows = (shown) => {
+    const out = [];
+    const mine = shown.filter((i) => !i.fromPack);
+    const pack = shown.filter((i) => i.fromPack);
+    const groupRow = (label, n, sub) => h('div', { class: 'item group-row' }, h('div', { class: 'g-label' }, label, h('span', { class: 'count' }, String(n)), sub ? h('span', { class: 'faint', style: { fontWeight: 400 } }, sub) : null));
+    if (origin === 'all' && mine.length) out.push(groupRow('Added by you', mine.length, 'These keep all the normal controls.'));
+    for (const it of mine) out.push(packRow(it));
+    if (origin === 'all' && pack.length) out.push(groupRow(`From ${packName}`, pack.length, 'Locked: they change with pack updates. You can still turn them off.'));
+    for (const it of pack) out.push(packRow(it));
+    return out;
+  };
+  const packRow = (it) => {
+    const locked = isLocked(it);
+    const up = locked ? null : updates.get(it.file);
+    const box = h('input', {
+      type: 'checkbox', class: 'sel', disabled: locked, title: locked ? `Part of ${packName}: not included in bulk actions` : 'Select (Shift+click for a range)',
+      onmousedown: (e) => { if (e.shiftKey) e.preventDefault(); },
+      onclick: (e) => onRowBox(it, e),
+    });
+    const sw = h('label', { class: 'switch', title: it.enabled ? 'Enabled: click to turn off' : 'Turned off: click to turn on' },
+      h('input', {
+        type: 'checkbox', checked: it.enabled, onchange: async (e) => {
+          try { await call('content:toggle', inst.id, it.file, e.target.checked); it.enabled = e.target.checked; renderList(); } catch (err) { toast(err.message, 'error'); e.target.checked = it.enabled; }
+        },
+      }), h('span'));
+    const info = packUi.info.get(inst.id);
+    const marker = it.fromPack
+      ? h('span', { class: 'origin pack', title: `From ${packName}${it.packChanged ? ' (changed: not the pack’s version of this file)' : ''}` }, avatar({ icon: info?.icon || inst.iconSrc || inst.icon, title: packName }, 'xs'))
+      : h('span', { class: 'origin you', title: 'You added this' }, 'You');
+    const row = h('div', { class: `item ${it.enabled ? '' : 'disabled'} ${it.fromPack ? 'from-pack' : 'mine'}` },
+      box,
+      marker,
+      avatar({ icon: it.icon, title: it.title }, 'sm'),
+      h('div', { class: 'i-main', style: { minWidth: 0 } },
+        h('div', { class: 'i-title ellipsis', title: it.title }, it.title,
+          it.packChanged ? h('span', { class: 'badge warn plain', style: { marginLeft: '8px' }, title: "This isn't the file the pack ships. Restore it from the lock menu." }, 'Changed') : null,
+          it.duplicateOf ? h('span', { class: 'badge warn plain', style: { marginLeft: '8px' } }, 'Duplicate') : null,
+          it.pinned && !locked ? h('span', { class: 'badge plain', style: { marginLeft: '8px' }, title: 'Pinned: skipped by updates' }, 'Pinned') : null),
+        h('div', { class: 'i-file ellipsis', title: it.fileName }, it.fileName)),
+      h('div', { class: 'i-author ellipsis', title: authors[it.file] || '' }, authors[it.file] || h('span', { class: 'faint' }, '—')),
+      h('div', null, sideBadge(it.side)),
+      h('div', { class: 'i-ver ellipsis', title: it.versionName }, up ? h('span', { class: 'badge good plain', title: `Update: ${up.next}` }, `→ ${up.next}`) : it.versionName),
+      h('div', { class: 'c-switch' }, sw),
+      h('div', { class: 'i-actions' },
+        locked
+          ? h('button', { class: `btn ghost icon lock-btn ${it.packChanged ? 'changed' : ''}`, type: 'button', title: `Part of ${packName}. It changes with pack updates.${it.packChanged ? ' Click to restore the pack\'s version.' : ''}`, onclick: (e) => lockMenu(e.currentTarget, it) }, icon('lock', 15))
+          : [
+            up ? h('button', { class: 'btn sm primary', type: 'button', title: `Update to ${up.next}`, onclick: () => reviewUpdates([up]) }, icon('arrowUp', 14)) : null,
+            h('button', { class: 'btn ghost icon', type: 'button', title: 'More', onclick: (e) => rowMenu(e.currentTarget, it) }, icon('more')),
+          ]));
+    if (!locked) rowEls.set(it.file, { row, box });
+    return row;
+  };
+  const rowMenu = (anchorEl, it) => popupMenu(anchorEl, [
+    { label: it.pinned ? 'Unpin version' : 'Pin this version (skip updates)', icon: 'pin', onClick: async () => { await call('content:pin', inst.id, it.file, !it.pinned); it.pinned = !it.pinned; renderList(); } },
+    ...(it.url ? [{ label: `Open on ${SRC[it.source]}`, icon: 'external', onClick: () => call('shell:open', it.url) }] : []),
+    ...(it.projectId && it.source !== 'local' && it.source !== 'pack' ? [{ label: 'Change version…', icon: 'refresh', onClick: () => projectDialog({ source: it.source, id: it.projectId, title: it.title, icon: it.icon, type }, { instance: inst, tab: 'versions', onInstalled: () => renderContentTab(inst, type, root, renderToken) }) }] : []),
+    '-',
+    { label: 'Remove', icon: 'trash', danger: true, onClick: async () => {
+      try { await call('content:remove', inst.id, [it.file]); } catch (e) { toast(e.message, 'error'); return; }
+      items = items.filter((x) => x.file !== it.file);
+      renderList();
+      toast(`Removed ${it.title}`);
+    } },
+  ]);
+
   updateBtn.onclick = async () => {
     updateBtn.disabled = true;
     try { await runCheck(); } catch (e) { toast(e.message, 'error'); } finally { updateBtn.disabled = false; }
@@ -287,7 +403,8 @@ async function renderContentTab(inst, type, root, token) {
       try { const added = await call('content:addFiles', inst.id, type); if (added?.length) { toast(`Added ${added.length} file(s)`, 'good'); renderContentTab(inst, type, root, renderToken); } } catch (e) { toast(e.message, 'error'); }
     } }, icon('file'), 'Add files'),
     h('button', { class: 'btn primary', type: 'button', onclick: () => go('browse', { type, instanceId: inst.id }) }, icon('plus'), `Add ${type === 'mod' ? 'mods' : TYPES[type].toLowerCase()}`));
-  root.replaceChildren(toolbar, notices, listBox, bar);
+  if (linked) updateBtn.title = `Checks the files you added. ${packName}'s own files update with the pack.`;
+  root.replaceChildren(toolbar, linked ? chips : null, notices, listBox, bar);
   renderList();
 
   // Keyboard: Ctrl+A selects everything shown, Esc clears the selection.
@@ -307,6 +424,15 @@ async function renderContentTab(inst, type, root, token) {
   };
   contentKeyHandler = onKey;
   document.addEventListener('keydown', onKey);
+
+  // Who made each mod: one bulk lookup per site, cached.
+  if (linked) {
+    call('content:authors', inst.id).then((a) => {
+      if (stale(token) || !document.body.contains(listBox)) return;
+      authors = a || {};
+      renderList();
+    }).catch(() => {});
+  }
 
   // Fill in Modrinth's client/server info for mods linked before it was stored, so "Client" badges are complete.
   if (type === 'mod') {

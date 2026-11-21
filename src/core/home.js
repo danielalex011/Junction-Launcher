@@ -22,8 +22,9 @@ function pickJumpBackIn(list, limit = RECENT_COUNT) {
 }
 
 class Home {
-  constructor(ctx, instances, content, sources) {
+  constructor(ctx, instances, content, sources, packs = null) {
     this.ctx = ctx;
+    this.packs = packs; // PackLink: new versions of linked modpacks
     this.instances = instances;
     this.content = content;
     this.sources = sources;
@@ -41,10 +42,16 @@ class Home {
     const list = await this.instances.list();
     const cache = await this.read();
     const byId = new Map(list.map((i) => [i.id, i]));
-    const updates = Object.entries(cache.updates.byInstance)
-      .filter(([id, n]) => byId.has(id) && n > 0)
-      .map(([id, count]) => ({ instanceId: id, name: byId.get(id).name, count, icon: byId.get(id).icon || null, iconVersion: byId.get(id).iconVersion || 0 }))
-      .sort((a, b) => b.count - a.count || a.name.localeCompare(b.name));
+    const packs = cache.updates.packs || {};
+    const ids = new Set([...Object.keys(cache.updates.byInstance), ...Object.keys(packs)]);
+    const updates = [...ids]
+      .filter((id) => byId.has(id) && ((cache.updates.byInstance[id] || 0) > 0 || packs[id]))
+      .map((id) => ({
+        instanceId: id, name: byId.get(id).name, count: cache.updates.byInstance[id] || 0, icon: byId.get(id).icon || null, iconVersion: byId.get(id).iconVersion || 0,
+        pack: packs[id] && String(packs[id].versionId) !== String(byId.get(id).pack?.versionId) ? packs[id] : null,
+      }))
+      .filter((u) => u.count > 0 || u.pack)
+      .sort((a, b) => Boolean(b.pack) - Boolean(a.pack) || b.count - a.count || a.name.localeCompare(b.name));
     const { items, fallback } = pickJumpBackIn(list);
     return {
       recent: items,
@@ -62,6 +69,14 @@ class Home {
   async record(instanceId, count) {
     const cache = await this.read();
     if (count > 0) cache.updates.byInstance[instanceId] = count; else delete cache.updates.byInstance[instanceId];
+    await writeJson(this.file, cache);
+  }
+
+  /** Remember (or clear, with null) a newer version of an instance's modpack. */
+  async recordPack(instanceId, update) {
+    const cache = await this.read();
+    cache.updates.packs = cache.updates.packs || {};
+    if (update) cache.updates.packs[instanceId] = { versionId: update.versionId, versionName: update.versionName }; else delete cache.updates.packs[instanceId];
     await writeJson(this.file, cache);
   }
 
@@ -91,9 +106,15 @@ class Home {
     if (needUpdates) {
       await this.ctx.tasks.run('Checking instances for updates', async () => {
         const byInstance = {};
+        const packs = {};
         let failures = 0;
         const list = await this.instances.list();
         for (const inst of list) {
+          if (this.packs) {
+            // Old installs get their pack labels first, so the pack's own mods aren't counted as updates.
+            try { if (await this.packs.needsLabels(inst.id)) await this.packs.label(inst.id); } catch { /* counted as before */ }
+            try { const u = await this.packs.checkUpdate(inst.id); if (u) packs[inst.id] = { versionId: u.versionId, versionName: u.versionName }; } catch { /* the mod check below decides about failures */ }
+          }
           try {
             const ups = await this.content.checkUpdates(inst.id);
             const n = ups.filter((u) => !u.error).length;
@@ -102,7 +123,7 @@ class Home {
           } catch { failures++; }
         }
         // If every site failed, keep the old numbers and try again next time instead of claiming "all up to date".
-        if (!list.length || failures < list.length) cache.updates = { checkedAt: Date.now(), byInstance };
+        if (!list.length || failures < list.length) cache.updates = { checkedAt: Date.now(), byInstance, packs };
       }, { kind: 'other' });
     }
     await writeJson(this.file, cache);

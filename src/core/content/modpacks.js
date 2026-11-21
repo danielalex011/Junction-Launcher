@@ -13,7 +13,7 @@ const { pickFile } = require('./manager');
 const { pickVersion } = require('../sources/choose');
 const { describeError, isRetryable } = require('../http');
 const { currentTask } = require('../taskcontext');
-const { safeJoin, ensureDir, pool, exists, shortId, hashFile, hashBuffer } = require('../util');
+const { safeJoin, ensureDir, pool, exists, hashFile, hashBuffer } = require('../util');
 
 // How many pack files to fetch at once. The CDNs also have their own gentler
 // limit inside http.download, because they answer "503 first byte timeout" when pushed.
@@ -50,6 +50,7 @@ async function extractOverrides(zip, prefixes, gameDir, collect = null) {
       if (!rel) continue;
       const dest = safeJoin(gameDir, rel);
       await ensureDir(path.dirname(dest));
+      await fsp.rm(dest, { force: true }); // a new file, never an in-place write: pack backups may share it (hard link)
       await fsp.writeFile(dest, e.getData());
       if (collect) collect.push(rel.replace(/\\/g, '/'));
       count++;
@@ -60,7 +61,7 @@ async function extractOverrides(zip, prefixes, gameDir, collect = null) {
 
 function folderType(rel) {
   const top = rel.split('/')[0];
-  return { mods: 'mod', resourcepacks: 'resourcepack', shaderpacks: 'shader' }[top] || null;
+  return { mods: 'mod', resourcepacks: 'resourcepack', shaderpacks: 'shader', datapacks: 'datapack' }[top] || null;
 }
 
 /** The content type if rel is a file the content list shows (mods/x.jar, resourcepacks/x.zip, ...), else null. */
@@ -397,19 +398,45 @@ class Modpacks {
       throw e;
     }
     report(0.02, `Downloading ${file.filename}`);
-    const cached = path.join(this.ctx.paths.cache, 'packs', `${shortId(6)}-${file.filename}`);
-    await this.ctx.http.download(file.url, cached, { sha1: file.sha1, sha512: file.sha512, size: file.size });
-    try {
-      return await this.installFile(cached, {
-        name: project.title,
-        icon: project.icon,
-        instanceId,
-        pack: { source, projectId, versionId: version.id, name: project.title, versionName: version.versionNumber, url: project.url },
-        report,
-      });
-    } finally {
-      await fsp.rm(cached, { force: true });
+    const cached = await this.fetchArchive(source, version.id, file);
+    return this.installFile(cached, {
+      name: project.title,
+      icon: project.icon,
+      instanceId,
+      pack: { source, projectId, versionId: version.id, name: project.title, versionName: version.versionNumber, url: project.url },
+      report,
+    });
+  }
+
+  // ---- the pack's own archive, kept in the cache (labelling, compare and restore read it again) ----
+
+  archivePath(source, versionId, filename = '') {
+    const ext = /\.mrpack$/i.test(filename) || source === 'modrinth' ? '.mrpack' : '.zip';
+    return path.join(this.ctx.paths.cache, 'packs', 'versions', `${source}-${String(versionId).replace(/[^\w.-]/g, '_')}${ext}`);
+  }
+
+  /** Downloads (once) the archive of a pack version. Keeps the 8 most recent. */
+  async fetchArchive(source, versionId, file) {
+    const dest = this.archivePath(source, versionId, file.filename);
+    if (await exists(dest)) {
+      if (!file.sha1 || (await hashFile(dest, 'sha1')) === String(file.sha1).toLowerCase()) return dest;
     }
+    await this.ctx.http.download(file.url, dest, { sha1: file.sha1, sha512: file.sha512, size: file.size });
+    const dir = path.dirname(dest);
+    const all = await Promise.all((await fsp.readdir(dir).catch(() => [])).map(async (n) => ({ n, t: (await fsp.stat(path.join(dir, n)).catch(() => ({ mtimeMs: 0 }))).mtimeMs })));
+    for (const old of all.sort((a, b) => b.t - a.t).slice(8)) await fsp.rm(path.join(dir, old.n), { force: true });
+    return dest;
+  }
+
+  /** The archive of a linked pack version (downloaded if needed). Throws a plain sentence when the author blocks downloads. */
+  async packArchive(pack, versionId = pack.versionId) {
+    const { project, version, file } = await this.lookupPack(pack.source, pack.projectId, versionId);
+    if (!file.url) {
+      const e = new Error(`The author of ${project?.title || pack.name} only allows downloads from the CurseForge website, so Junction can't read the pack's file list.`);
+      e.manualUrl = CurseForge.manualDownloadUrl(project, version.id);
+      throw e;
+    }
+    return { path: await this.fetchArchive(pack.source, version.id, file), project, version };
   }
 
   async checkPackUpdate(instId) {
@@ -468,17 +495,12 @@ class Modpacks {
       e.manualUrl = pack.url;
       throw e;
     }
-    const cached = path.join(this.ctx.paths.cache, 'packs', `${shortId(6)}-${file.filename}`);
-    await this.ctx.http.download(file.url, cached, { sha1: file.sha1, sha512: file.sha512, size: file.size });
-    try {
-      const zip = new AdmZip(cached);
-      const fmt = detectPackFormat(zip);
-      if (fmt === 'mrpack') return await this.repairMrpack(zip, inst, report);
-      if (fmt === 'curseforge') return await this.repairCurseForge(zip, inst, report);
-      throw new Error('The downloaded file is not a modpack.');
-    } finally {
-      await fsp.rm(cached, { force: true });
-    }
+    const cached = await this.fetchArchive(pack.source, version.id, file);
+    const zip = new AdmZip(cached);
+    const fmt = detectPackFormat(zip);
+    if (fmt === 'mrpack') return this.repairMrpack(zip, inst, report);
+    if (fmt === 'curseforge') return this.repairCurseForge(zip, inst, report);
+    throw new Error('The downloaded file is not a modpack.');
   }
 
   /** Re-checks the pack's own override mods / resource packs / shaders: restores missing ones and labels the ones that match. */
@@ -568,4 +590,4 @@ class Modpacks {
   }
 }
 
-module.exports = { Modpacks, detectPackFormat, mrpackLoader, extractOverrides };
+module.exports = { Modpacks, detectPackFormat, mrpackLoader, extractOverrides, contentType, normRel, DOWNLOAD_CONCURRENCY };

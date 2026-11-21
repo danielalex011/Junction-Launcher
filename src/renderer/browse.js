@@ -105,6 +105,10 @@ function resultCard(hit, inst, bctx = null) {
   const onInstalled = () => bctx?.refresh();
   const renderAction = () => {
     const match = inst ? installedMatch(hit, bctx?.installed) : null;
+    if (match?.fromPack && inst.linked) {
+      slot.replaceChildren(h('button', { class: 'btn installed', type: 'button', disabled: true, title: `Already included in ${inst.pack?.name || 'the modpack'}` }, icon('lock'), 'In the modpack'));
+      return;
+    }
     if (match) {
       const from = match.exact && match.source !== hit.source ? ` (from ${SRC[match.source]})` : '';
       slot.replaceChildren(h('button', {

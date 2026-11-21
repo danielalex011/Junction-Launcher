@@ -8,6 +8,40 @@ const { createContext } = require('../src/core/context');
 const { Instances } = require('../src/core/instances');
 const { fabricJar } = require('../test/helpers');
 
+/**
+ * "Lantern Pack" 4.1.9 from the mock network, made to look like an instance installed before Junction kept pack
+ * labels: no fromPack flags. On top: two mods of your own (one of them, Distant Horizons, ships with 4.2.0), a pack
+ * mod you turned off (Zoomify) and a pack mod you replaced with another build (Lithium, "Changed").
+ */
+async function seedLinkedPack(dir) {
+  const mock = require('./mock-network');
+  const ctx = await createContext(dir, { fetchImpl: mock });
+  await ctx.settings.update({ cfApiKey: 'demo-key' });
+  const { createSources } = require('../src/core/sources');
+  const { ContentManager } = require('../src/core/content/manager');
+  const { Modpacks } = require('../src/core/content/modpacks');
+  const instances = new Instances(ctx);
+  const sources = createSources(ctx);
+  const content = new ContentManager(ctx, instances, sources);
+  const modpacks = new Modpacks(ctx, instances, content, sources);
+  const r = await modpacks.installFromSource({ source: 'modrinth', projectId: 'LANTERN', versionId: 'lan419' });
+  const id = r.instance.id;
+  await instances.update(id, { lastPlayed: Date.now() - 26 * 3600e3, playtimeMs: 63 * 3600e3 });
+  const gd = instances.gameDir(id);
+  fs.writeFileSync(path.join(gd, 'mods', 'distanthorizons-2.2.1.jar'), fabricJar('distanthorizons', 'Distant Horizons', '2.2.1'));
+  fs.writeFileSync(path.join(gd, 'mods', 'mousetweaks-3.1.jar'), fabricJar('mousetweaks', 'Mouse Tweaks', '3.1', { authors: ['YaLTeR'], environment: 'client' }));
+  fs.renameSync(path.join(gd, 'mods', 'zoomify-2.14.jar'), path.join(gd, 'mods', 'zoomify-2.14.jar.disabled'));
+  fs.writeFileSync(path.join(gd, 'mods', 'lithium-0.13.1.jar'), fabricJar('lithium', 'Lithium', '0.13.2-custom'));
+  const idxFile = path.join(instances.instDir(id), 'content.json');
+  const idx = JSON.parse(fs.readFileSync(idxFile, 'utf8'));
+  for (const e of Object.values(idx.files)) { delete e.fromPack; delete e.packFile; delete e.packChanged; }
+  delete idx.packLabels;
+  fs.writeFileSync(idxFile, JSON.stringify(idx));
+  // Home: the pack has an update waiting.
+  const homeFile = path.join(ctx.paths.cache, 'home.json');
+  fs.writeFileSync(homeFile, JSON.stringify({ updates: { checkedAt: Date.now(), byInstance: {}, packs: { [id]: { versionId: 'lan420', versionName: '4.2.0' } } }, popular: { checkedAt: 0, hits: [] } }));
+}
+
 (async () => {
   const dir = path.resolve(process.argv[2] || 'demo-data');
   fs.rmSync(dir, { recursive: true, force: true });
@@ -43,5 +77,6 @@ const { fabricJar } = require('../test/helpers');
     { id: 'msa-demo', type: 'msa', name: 'DemoPlayer', uuid: 'demo', ownsGame: true, skinUrl: 'https://textures.minecraft.net/texture/demo-skin' },
     { id: 'offline-steve', type: 'offline', name: 'Steve', uuid: 'steve' },
   ] }));
+  await seedLinkedPack(dir);
   console.log(`Demo data in ${dir}`);
 })();

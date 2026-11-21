@@ -30,7 +30,7 @@ src/core/            engine — plain Node, must NEVER require('electron') (keep
   minecraft/         versions (inheritsFrom merge), install (libs/natives/assets), java (Mojang runtimes), launch args
   loaders/           Fabric/Quilt (meta JSON) and Forge/NeoForge (headless official installer)
   sources/           modrinth.js, curseforge.js (normalised shapes), index.js (merged search), fingerprint.js
-  content/           manager.js (install/deps/dedupe/updates/undo), modpacks.js, export.js, importer.js, blocked.js, metadata.js
+  content/           manager.js (install/deps/dedupe/updates/undo), modpacks.js, packlink.js (linked packs: labels, compare, pack updates, backups), export.js, importer.js, blocked.js, metadata.js
   auth/accounts.js   Microsoft device-code → Xbox → XSTS → Minecraft; offline accounts
 src/main/main.js     Electron main: IPC handlers (`handle('area:action', fn)`), tasks, protocol, windows
 src/main/preload.js  the ONLY bridge: window.junction.call(channel, ...args) / on(event, cb)
@@ -48,7 +48,7 @@ Data flow for a feature: core function → `handle('x:y', …)` in main.js → `
 
 - **Project** (search hit / details): `{ source: 'modrinth'|'curseforge', id, slug, title, summary, icon, url, type: 'mod'|'modpack'|'resourcepack'|'shader', ... }`. Merged hits add `alsoOn: [{source, id, slug, url}]`.
 - **Version**: `{ source, id, projectId, versionNumber, gameVersions, loaders, releaseType: 'release'|'beta'|'alpha', date, files: [{url, filename, sha1, sha512?, size, primary}], deps: [{source, projectId, versionId?, type}] }`. CurseForge file IDs are numbers, Modrinth IDs are strings, so compare with `String(a) === String(b)`.
-- **content.json** (per instance): `files["mods/x.jar"] = { source ('modrinth'|'curseforge'|'local'|'pack' = shipped inside a modpack's overrides), projectId, versionId, title, versionName, icon, projectUrl, fileUrl, sha1, meta: {modId, name, version, loader, environment?}, sides?: {client, server} (Modrinth client_side/server_side), pinned?, fromPack? }`. `failed["mods/y.jar"] = { path, urls, hashes, size, error, source, ... }` is the list of pack files that couldn't be downloaded (retry / repair read it). `listContent()` adds `clientOnly` (jar `environment` = client, or Modrinth server_side = unsupported).
+- **content.json** (per instance): `files["mods/x.jar"] = { source ('modrinth'|'curseforge'|'local'|'pack' = shipped inside a modpack's overrides), projectId, versionId, title, versionName, icon, projectUrl, fileUrl, sha1, meta: {modId, name, version, loader, environment?}, sides?: {client, server} (Modrinth client_side/server_side), pinned?, fromPack?, packChanged?, packFile? }` (`fromPack` = the linked pack's own file, matched by hash; `packFile` = what Restore pack version puts back). `idx.packLabels.versionId` says which pack version the labels belong to. In a linked pack (`isLinkedPack(inst)`) fromPack files are locked: no updates, remove or pin, only turning off. `failed["mods/y.jar"] = { path, urls, hashes, size, error, source, ... }` is the list of pack files that couldn't be downloaded (retry / repair read it). `listContent()` adds `clientOnly` (jar `environment` = client, or Modrinth server_side = unsupported).
 
 ## Rules — don't break these
 

@@ -9,10 +9,30 @@ const path = require('path');
 const { exists, readJson, writeJson, ensureDir, slugify, shortId, copyDir, hashFile, safeJoin, imageTypeOfFile } = require('./util');
 const { readModMetadata, isClientOnly } = require('./content/metadata');
 
-const TYPE_DIR = { mod: 'mods', resourcepack: 'resourcepacks', shader: 'shaderpacks' };
+// datapacks/ is only used by modpacks that ship global data packs (loaded by a mod); new instances don't get the folder.
+const TYPE_DIR = { mod: 'mods', resourcepack: 'resourcepacks', shader: 'shaderpacks', datapack: 'datapacks' };
 const ICON_EXT = ['.png', '.jpg', '.jpeg', '.webp', '.gif'];
-const DIR_TYPE = { mods: 'mod', resourcepacks: 'resourcepack', shaderpacks: 'shader' };
-const CONTENT_EXT = { mod: ['.jar'], resourcepack: ['.zip'], shader: ['.zip'] };
+const DIR_TYPE = { mods: 'mod', resourcepacks: 'resourcepack', shaderpacks: 'shader', datapacks: 'datapack' };
+const CONTENT_EXT = { mod: ['.jar'], resourcepack: ['.zip'], shader: ['.zip'], datapack: ['.zip'] };
+
+/** A modpack from Modrinth or CurseForge that the instance follows (gets pack updates, pack content is locked). */
+function isLinkedPack(inst) {
+  return Boolean(inst?.pack && ['modrinth', 'curseforge'].includes(inst.pack.source) && inst.pack.projectId != null);
+}
+
+/** 'client', 'server', 'both' or null, from Modrinth's client_side/server_side or the jar's environment. */
+function sideOf(entry) {
+  const s = entry?.sides;
+  if (s && (s.client || s.server)) {
+    if (s.server === 'unsupported') return 'client';
+    if (s.client === 'unsupported') return 'server';
+    return 'both';
+  }
+  const env = entry?.meta?.environment;
+  if (env === 'client' || env === 'server') return env;
+  if (env === '*' || env === 'both') return 'both';
+  return null;
+}
 
 class Instances {
   constructor(ctx) {
@@ -51,7 +71,7 @@ class Instances {
       memoryMax: null, memoryMin: null, jvmArgs: '', javaPath: '', resolution: null, joinServer: '',
     };
     await ensureDir(this.gameDir(id));
-    for (const d of Object.values(TYPE_DIR)) await ensureDir(path.join(this.gameDir(id), d));
+    for (const d of ['mods', 'resourcepacks', 'shaderpacks']) await ensureDir(path.join(this.gameDir(id), d));
     await writeJson(path.join(this.instDir(id), 'instance.json'), inst);
     await writeJson(path.join(this.instDir(id), 'content.json'), { files: {} });
     return inst;
@@ -59,7 +79,7 @@ class Instances {
 
   async update(id, patch) {
     const inst = await this.get(id);
-    const allowed = ['name', 'mcVersion', 'loader', 'icon', 'pack', 'lastPlayed', 'playtimeMs', 'memoryMax', 'memoryMin', 'jvmArgs', 'javaPath', 'resolution', 'joinServer', 'notes', 'importedFrom', 'originalIcon', 'iconVersion'];
+    const allowed = ['name', 'mcVersion', 'loader', 'icon', 'pack', 'lastPlayed', 'playtimeMs', 'memoryMax', 'memoryMin', 'jvmArgs', 'javaPath', 'resolution', 'joinServer', 'notes', 'importedFrom', 'originalIcon', 'iconVersion', 'unlinkedPack'];
     for (const k of allowed) if (k in patch) inst[k] = patch[k];
     await writeJson(path.join(this.instDir(id), 'instance.json'), inst);
     return inst;
@@ -184,7 +204,9 @@ class Instances {
         loader: entry.meta?.loader || null,
         pinned: Boolean(entry.pinned),
         fromPack: Boolean(entry.fromPack),
+        packChanged: Boolean(entry.fromPack && entry.packChanged),
         sides: entry.sides || null,
+        side: sideOf(entry),
         clientOnly: type === 'mod' && isClientOnly({ environment: entry.meta?.environment, sides: entry.sides }),
       });
     }
@@ -211,4 +233,4 @@ class Instances {
   }
 }
 
-module.exports = { Instances, TYPE_DIR, DIR_TYPE, CONTENT_EXT, ICON_EXT };
+module.exports = { Instances, isLinkedPack, sideOf, TYPE_DIR, DIR_TYPE, CONTENT_EXT, ICON_EXT };

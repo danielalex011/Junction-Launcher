@@ -7,13 +7,14 @@ const { marked } = require('marked');
 
 const { createContext } = require('../core/context');
 const { Accounts } = require('../core/auth/accounts');
-const { Instances } = require('../core/instances');
+const { Instances, isLinkedPack } = require('../core/instances');
 const { createSources, searchAll, compatibleLoaders } = require('../core/sources');
 const { Home } = require('../core/home');
 const { composeHead } = require('../core/skin');
 const { compareSources } = require('../core/sources/choose');
 const { ContentManager } = require('../core/content/manager');
 const { Modpacks } = require('../core/content/modpacks');
+const { PackLink } = require('../core/content/packlink');
 const { BlockedWatcher, waitForDownload } = require('../core/content/blocked');
 const { exportMrpack, exportCurseForge, exportableEntries } = require('../core/content/export');
 const { detectInstance, importInstance, scanLaunchers } = require('../core/content/importer');
@@ -26,7 +27,7 @@ const { HttpError, describeError } = require('../core/http');
 
 const VERSION = require('../../package.json').version;
 let win = null;
-let ctx; let accounts; let instances; let sources; let content; let modpacks; let home;
+let ctx; let accounts; let instances; let sources; let content; let modpacks; let home; let packlink;
 const running = new Map();
 const blockedSessions = new Map();
 let pendingOpenFiles = [];
@@ -146,6 +147,7 @@ function registerIpc() {
     ...i,
     running: running.has(i.id),
     state: running.get(i.id)?.state || null,
+    linked: isLinkedPack(i),
     iconSrc: typeof i.icon === 'string' && i.icon.startsWith('local:') ? `junction-icon://${i.id}/?v=${i.iconVersion || 0}` : (i.icon || null),
   });
   handle('inst:list', async () => (await instances.list()).map(withState));
@@ -158,7 +160,13 @@ function registerIpc() {
   handle('inst:setIcon', async (id, filePath) => withState(await instances.setIconFromFile(id, filePath)));
   handle('inst:clearIcon', async (id) => withState(await instances.clearIcon(id)));
   handle('inst:create', async (opts) => instances.create(opts));
-  handle('inst:update', async (id, patch) => instances.update(id, patch));
+  handle('inst:update', async (id, patch) => {
+    const cur = await instances.get(id);
+    if (isLinkedPack(cur) && ((patch.mcVersion && patch.mcVersion !== cur.mcVersion) || (patch.loader && JSON.stringify(patch.loader) !== JSON.stringify(cur.loader)))) {
+      throw new Error(`${cur.pack.name} sets the Minecraft version and loader. Unlink the modpack in Settings to change them.`);
+    }
+    return instances.update(id, patch);
+  });
   handle('inst:delete', async (id) => {
     if (running.has(id)) throw new Error('Stop the game before deleting this instance.');
     await instances.remove(id);
@@ -222,16 +230,29 @@ function registerIpc() {
 
   // --- content
   handle('content:list', async (id, type) => instances.listContent(id, type));
-  handle('content:remove', async (id, rels) => content.removeFiles(id, rels));
+  // A linked modpack's own files: only the pack changes them (turning one off is still allowed).
+  const refuseLocked = async (id, rels, what) => {
+    const locked = await content.lockedRels(id, rels);
+    if (!locked.length) return;
+    const inst = await instances.get(id);
+    throw new Error(`${locked.length === 1 ? `${path.basename(locked[0])} is` : `${locked.length} of these files are`} part of ${inst.pack.name}, so ${what}. You can turn ${locked.length === 1 ? 'it' : 'them'} off instead, or unlink the modpack in Settings.`);
+  };
+  handle('content:remove', async (id, rels) => { await refuseLocked(id, rels, "they can't be removed here"); return content.removeFiles(id, rels); });
   handle('content:toggle', async (id, rel, enabled) => content.setEnabled(id, rel, enabled));
-  handle('content:pin', async (id, rel, pinned) => content.setPinned(id, rel, pinned));
+  handle('content:pin', async (id, rel, pinned) => { await refuseLocked(id, [rel], 'they follow the pack\'s versions'); return content.setPinned(id, rel, pinned); });
   // Bulk actions for the selection bar: one call per action, at most one content.json write each.
   const relList = (rels) => {
     if (!Array.isArray(rels) || rels.some((r) => typeof r !== 'string')) throw new Error('Nothing selected.');
     return [...new Set(rels)];
   };
   handle('content:toggleMany', async (id, rels, enabled) => content.setEnabledMany(id, relList(rels), Boolean(enabled)));
-  handle('content:pinMany', async (id, rels, pinned) => content.setPinnedMany(id, relList(rels), Boolean(pinned)));
+  handle('content:pinMany', async (id, rels, pinned) => { await refuseLocked(id, relList(rels), 'they follow the pack\'s versions'); return content.setPinnedMany(id, relList(rels), Boolean(pinned)); });
+  handle('content:counts', async (id) => {
+    const out = {};
+    for (const t of ['mod', 'resourcepack', 'shader', 'datapack']) out[t] = (await instances.listContent(id, t)).length;
+    return out;
+  });
+  handle('content:authors', async (id) => packlink.authors(id));
   handle('content:copyList', async (id, rels) => {
     const md = await content.markdownList(id, relList(rels));
     clipboard.writeText(md);
@@ -315,7 +336,11 @@ function registerIpc() {
   };
   handle('pack:installFromSource', async (opts) => {
     const manualFile = opts.source === 'curseforge' ? await waitForManualPack(opts) : null;
-    const r = await ctx.tasks.run(`Installing ${opts.title || 'modpack'}`, (t) => modpacks.installFromSource({ ...opts, manualFile, report: t.update }), { kind: 'modpack', icon: 'pack', heavy: true, createsInstance: true });
+    const r = await ctx.tasks.run(`Installing ${opts.title || 'modpack'}`, async (t) => {
+      const res = await modpacks.installFromSource({ ...opts, manualFile, report: t.update });
+      try { await packlink.label(res.instance.id); } catch (e) { res.warnings = [...(res.warnings || []), `Couldn't sort pack content from your additions yet: ${e.message}`]; }
+      return res;
+    }, { kind: 'modpack', icon: 'pack', heavy: true, createsInstance: true });
     return { ...r, blockedSession: startBlockedSession(r.instance.id, r.blocked) };
   });
   handle('pack:importFile', async (filePath) => {
@@ -340,11 +365,68 @@ function registerIpc() {
     const r = await ctx.tasks.run(`Repairing ${inst.name}`, (t) => modpacks.repair(id, { report: t.update }), { instanceId: id, kind: 'repair', icon: 'pack', heavy: true });
     return { ...r, blockedSession: startBlockedSession(id, r.blocked) };
   });
-  handle('pack:checkUpdate', async (id) => modpacks.checkPackUpdate(id));
-  handle('pack:update', async (id, versionId) => {
+  handle('pack:checkUpdate', async (id) => {
+    const u = await packlink.checkUpdate(id);
+    home.recordPack(id, u).catch(() => {});
+    return u;
+  });
+  // Linked modpacks: labels, the page's header and changelog, review + update / switch / reinstall, undo, unlink.
+  handle('pack:label', async (id, force = false) => {
+    if (!force && !(await packlink.needsLabels(id))) return { skipped: true };
+    return ctx.tasks.run('Sorting pack content from your additions', () => packlink.label(id), { instanceId: id, kind: 'other', icon: 'pack' });
+  });
+  const packInfoCache = new Map();
+  handle('pack:info', async (id) => {
     const inst = await instances.get(id);
-    const r = await ctx.tasks.run(`Updating ${inst.name}`, (t) => modpacks.installFromSource({ source: inst.pack.source, projectId: inst.pack.projectId, versionId, instanceId: id, report: t.update }), { instanceId: id, kind: 'update', icon: 'pack', heavy: true });
+    const key = `${inst.pack?.source}:${inst.pack?.projectId}`;
+    const hit = packInfoCache.get(key);
+    if (hit && Date.now() - hit.at < 10 * 60e3) return hit.info;
+    const info = await packlink.info(id);
+    // The blurred header picture comes through the main process as a data URL (checked type and size).
+    if (info?.banner) {
+      try {
+        const res = await ctx.http.request(info.banner, { retries: 1, timeout: 15000 });
+        const type = String(res.headers.get('content-type') || '').split(';')[0].trim();
+        const buf = Buffer.from(await res.arrayBuffer());
+        info.banner = /^image\/(png|jpeg|webp|gif)$/.test(type) && buf.length < 4 * 1024 * 1024 ? `data:${type};base64,${buf.toString('base64')}` : null;
+      } catch { info.banner = null; }
+    }
+    packInfoCache.set(key, { at: Date.now(), info });
+    return info;
+  });
+  handle('pack:versions', async (id) => packlink.versions(id));
+  handle('pack:changelog', async (id) => (await packlink.changelog(id)).map((v) => ({ ...v, html: v.bodyFormat === 'markdown' ? marked.parse(v.body || '', { gfm: true }) : v.body, body: undefined })));
+  handle('pack:preview', async (id, versionId) => ctx.tasks.run('Comparing modpack versions', () => packlink.preview(id, versionId), { instanceId: id, kind: 'other', icon: 'pack' }));
+  handle('pack:apply', async (id, versionId, opts = {}) => {
+    if (running.has(id)) throw new Error('Close the game before changing its modpack.');
+    const inst = await instances.get(id);
+    const action = opts.action === 'reinstall' ? 'reinstall' : 'update';
+    const title = action === 'reinstall' ? `Reinstalling ${inst.pack.name}` : `Updating ${inst.name}`;
+    const r = await ctx.tasks.run(title, (t) => packlink.applyVersion(id, versionId, { action, keepAdditions: opts.keepAdditions !== false, keepDisabled: action === 'update', report: t.update }), { instanceId: id, kind: 'update', icon: 'pack', heavy: true });
+    packInfoCache.clear();
+    packlink.checkUpdate(id).then((u) => home.recordPack(id, u)).catch(() => {});
     return { ...r, blockedSession: startBlockedSession(id, r.blocked) };
+  });
+  handle('pack:update', async (id, versionId) => {
+    if (running.has(id)) throw new Error('Close the game before changing its modpack.');
+    const inst = await instances.get(id);
+    const r = await ctx.tasks.run(`Updating ${inst.name}`, (t) => packlink.applyVersion(id, versionId, { report: t.update }), { instanceId: id, kind: 'update', icon: 'pack', heavy: true });
+    return { ...r, blockedSession: startBlockedSession(id, r.blocked) };
+  });
+  handle('pack:history', async (id) => packlink.history(id));
+  handle('pack:undo', async (id, stamp) => {
+    if (running.has(id)) throw new Error('Close the game before undoing.');
+    return ctx.tasks.run('Undoing modpack change', () => packlink.undo(id, stamp), { instanceId: id, kind: 'update', icon: 'pack' });
+  });
+  handle('pack:restoreFile', async (id, rel) => {
+    if (running.has(id)) throw new Error('Close the game first.');
+    return ctx.tasks.run(`Restoring ${path.basename(String(rel))}`, () => packlink.restoreFile(id, String(rel)), { instanceId: id, kind: 'repair', icon: 'pack' });
+  });
+  handle('pack:unlink', async (id) => {
+    const inst = await instances.get(id);
+    if (!inst.pack) return withState(inst);
+    home.recordPack(id, null).catch(() => {});
+    return withState(await instances.update(id, { pack: null, unlinkedPack: inst.pack }));
   });
 
   // --- export / import
@@ -517,7 +599,8 @@ app.whenReady().then(async () => {
   sources = createSources(ctx);
   content = new ContentManager(ctx, instances, sources);
   modpacks = new Modpacks(ctx, instances, content, sources);
-  home = new Home(ctx, instances, content, sources);
+  packlink = new PackLink(ctx, instances, content, modpacks, sources);
+  home = new Home(ctx, instances, content, sources, packlink);
   ctx.tasks.on('update', (t) => send('task:update', t));
   ctx.tasks.on('history', (list) => send('task:history', list));
   protocol.handle('junction-icon', async (req) => {

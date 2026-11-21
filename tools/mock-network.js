@@ -5,7 +5,7 @@
 // Modrinth/CurseForge search results and versions. Everything else returns 503.
 const crypto = require('crypto');
 const AdmZip = require('adm-zip');
-const { fabricJar, demoSkin } = require('../test/helpers');
+const { fabricJar, demoSkin, makePng } = require('../test/helpers');
 const json = (o) => new Response(JSON.stringify(o), { headers: { 'content-type': 'application/json' } });
 const daysAgo = (d) => new Date(Date.now() - d * 864e5).toISOString();
 
@@ -23,8 +23,8 @@ const jars = new Map();
 const jarFor = (pid) => { if (!jars.has(pid)) jars.set(pid, fabricJar(String(pid).toLowerCase(), String(pid), '0.9.5')); return jars.get(pid); };
 const SIDES = { AANobbMI: ['required', 'unsupported'], gvQqBUqZ: ['required', 'required'], YL57xq9U: ['required', 'unsupported'], uCdwusMi: ['required', 'optional'] };
 const mrProject = (id) => ({
-  id, slug: String(id).toLowerCase(), title: { AANobbMI: 'Sodium', gvQqBUqZ: 'Lithium', YL57xq9U: 'Iris Shaders', uCdwusMi: 'Distant Horizons' }[id] || id,
-  project_type: 'mod', icon_url: null, client_side: (SIDES[id] || ['required', 'required'])[0], server_side: (SIDES[id] || ['required', 'required'])[1],
+  id, slug: String(id).toLowerCase(), title: { AANobbMI: 'Sodium', gvQqBUqZ: 'Lithium', YL57xq9U: 'Iris Shaders', uCdwusMi: 'Distant Horizons', OLDTW: 'Old Tweaks', BCAVE: 'Better Caves', ZOOMR: 'Zoomify' }[id] || id,
+  project_type: 'mod', icon_url: null, team: `team-${id}`, client_side: (SIDES[id] || ['required', 'required'])[0], server_side: (SIDES[id] || ['required', 'required'])[1],
 });
 const versions = (pid) => [['5', '0.9.6-beta.4', 'beta', 2], ['4', '0.9.5', 'release', 9], ['3', '0.9.4', 'release', 20], ['2', '0.9.3-alpha.2', 'alpha', 30]]
   .map(([n, num, type, d]) => ({
@@ -108,6 +108,61 @@ function slowResponse(k, signal) {
   return new Response(stream, { headers: { 'content-length': String(body.length) } });
 }
 
+// ---- "Lantern Pack": a linked Modrinth modpack with a newer version (search "lantern" under Modpacks, or seed-demo's
+// "Lantern Pack" instance). 4.1.9 -> 4.2.0: Sodium updated, Old Tweaks removed, Better Caves and Distant Horizons added,
+// config files changed. Projects come with authors (teams), a featured gallery picture and changelogs.
+const LANTERN_MODS = {
+  '4.1.9': [['AANobbMI', 'sodium', 'Sodium', '0.6.0'], ['gvQqBUqZ', 'lithium', 'Lithium', '0.13.1'], ['YL57xq9U', 'iris', 'Iris Shaders', '1.8.0'], ['OLDTW', 'oldtweaks', 'Old Tweaks', '2.2'], ['ZOOMR', 'zoomify', 'Zoomify', '2.14']],
+  '4.2.0': [['AANobbMI', 'sodium', 'Sodium', '0.6.1'], ['gvQqBUqZ', 'lithium', 'Lithium', '0.13.1'], ['YL57xq9U', 'iris', 'Iris Shaders', '1.8.0'], ['BCAVE', 'bettercaves', 'Better Caves', '3.0'], ['uCdwusMi', 'distanthorizons', 'Distant Horizons', '2.3.0'], ['ZOOMR', 'zoomify', 'Zoomify', '2.14']],
+};
+const LANTERN_VID = { '4.1.9': 'lan419', '4.2.0': 'lan420' };
+// Zips with fixed timestamps, so the same file has the same hash in every process (seed-demo, the app, scripts).
+const FIXED_TIME = new Date(2026, 0, 1);
+const stable = (zipOrBuf) => { const z = Buffer.isBuffer(zipOrBuf) ? new AdmZip(zipOrBuf) : zipOrBuf; for (const e of z.getEntries()) e.header.time = FIXED_TIME; return z.toBuffer(); };
+const lanJars = new Map();
+const lanJar = (modId, name, ver) => { const k = `${modId}@${ver}`; if (!lanJars.has(k)) lanJars.set(k, stable(fabricJar(modId, name, ver, modId === 'zoomify' || modId === 'iris' ? { environment: 'client', authors: ['isXander'] } : { authors: ['Lantern Team'] }))); return lanJars.get(k); };
+const lanVid = (pid, ver) => `${pid.toLowerCase()}-${ver.replace(/\./g, '')}`;
+const lanFiles = {};
+const lanPacks = {};
+const lanterPack = (pv) => {
+  if (lanPacks[pv]) return lanPacks[pv];
+  const zip = new AdmZip();
+  const files = LANTERN_MODS[pv].map(([pid, modId, name, ver]) => {
+    const buf = lanJar(modId, name, ver);
+    const url = `https://cdn.modrinth.com/data/${pid}/versions/${lanVid(pid, ver)}/${modId}-${ver}.jar`;
+    lanFiles[url] = buf;
+    return { path: `mods/${modId}-${ver}.jar`, hashes: { sha1: sha(buf, 'sha1'), sha512: sha(buf, 'sha512') }, downloads: [url], fileSize: buf.length, env: { client: 'required', server: modId === 'zoomify' ? 'unsupported' : 'required' } };
+  });
+  zip.addFile('modrinth.index.json', Buffer.from(JSON.stringify({ formatVersion: 1, game: 'minecraft', versionId: pv, name: 'Lantern Pack', dependencies: { minecraft: '26.1.2', 'fabric-loader': '0.17.3' }, files })));
+  zip.addFile('overrides/mods/lantern-core-1.0.jar', stable(fabricJar('lanterncore', 'Lantern Core', '1.0', { authors: ['Lantern Team'] })));
+  zip.addFile('overrides/resourcepacks/lantern-ui.zip', Buffer.from(`lantern ui ${pv === '4.2.0' ? 'v2' : 'v1'}`));
+  zip.addFile('overrides/datapacks/lantern-loot.zip', Buffer.from('lantern loot tables'));
+  zip.addFile('overrides/config/lantern.toml', Buffer.from(pv === '4.2.0' ? 'difficulty = "hard"\nlanterns = 12' : 'difficulty = "normal"\nlanterns = 8'));
+  zip.addFile('overrides/config/sodium-options.json', Buffer.from('{"quality":{"weather_quality":"FAST"}}'));
+  if (pv === '4.2.0') zip.addFile('overrides/config/bettercaves.toml', Buffer.from('caves = "big"'));
+  else zip.addFile('overrides/config/oldtweaks.json', Buffer.from('{}'));
+  lanPacks[pv] = stable(zip);
+  return lanPacks[pv];
+};
+const lanVersion = (pv) => {
+  const buf = lanterPack(pv);
+  const vid = LANTERN_VID[pv];
+  return {
+    id: vid, project_id: 'LANTERN', name: `Lantern Pack ${pv}`, version_number: pv, game_versions: ['26.1.2'], loaders: ['fabric'], version_type: 'release', date_published: daysAgo(pv === '4.2.0' ? 2 : 30), dependencies: [],
+    changelog: pv === '4.2.0'
+      ? '## 4.2.0\n- **Added** Better Caves and Distant Horizons\n- Updated Sodium to 0.6.1\n- Removed Old Tweaks (merged into Lantern Core)\n- Harder default difficulty, more lanterns'
+      : '## 4.1.9\n- Fixed a crash when opening the lantern menu\n- Tuned Sodium defaults',
+    files: [{ url: `https://cdn.modrinth.com/data/LANTERN/versions/${vid}/lantern-${pv}.mrpack`, filename: `lantern-${pv}.mrpack`, hashes: { sha1: sha(buf, 'sha1'), sha512: sha(buf, 'sha512') }, size: buf.length, primary: true }],
+  };
+};
+const lanProject = {
+  id: 'LANTERN', slug: 'lantern-pack', title: 'Lantern Pack', project_type: 'modpack', icon_url: null, team: 'team-lantern',
+  description: 'Cosy caves, warm light, a tested set of mods.', downloads: 310000, followers: 2400, categories: ['adventure', 'exploration', 'quests'], loaders: ['fabric'], game_versions: ['26.1.2'],
+  gallery: [{ url: 'https://cdn.modrinth.com/data/LANTERN/images/banner.png', title: 'Lantern-lit caves', featured: true }],
+};
+let lanBanner = null;
+const lanternBanner = () => (lanBanner = lanBanner || makePng(96, 54, (x, y) => [40 + x * 1.6, 30 + y * 1.2, 90 + ((x * y) % 60), 255].map((v, i) => (i < 3 ? Math.min(255, Math.round(v)) : v))));
+
 // ---- "Twin Pack": the same modpack on both sites, to try the "Install from…" window (search "twin" under Modpacks).
 // Modrinth has the older 26.1.2 / Fabric build, CurseForge a newer 26.2 / NeoForge one that needs a manual download.
 // Sodium (a mod, on both sites) has a CurseForge file too, newer than Modrinth's, for 26.1.2 only.
@@ -125,7 +180,25 @@ const twinCf = () => ({
   links: { websiteUrl: 'https://www.curseforge.com/minecraft/modpacks/twin-pack' }, latestFilesIndexes: [{ gameVersion: '26.2', fileId: 5, modLoader: 6 }],
 });
 
+const TEAM_OWNERS = { 'team-AANobbMI': 'jellysquid3', 'team-gvQqBUqZ': 'jellysquid3', 'team-YL57xq9U': 'coderbot', 'team-uCdwusMi': 'jeseibel', 'team-OLDTW': 'tweakmaster', 'team-BCAVE': 'YUNGNICKYOUNG', 'team-ZOOMR': 'isXander', 'team-lantern': 'LanternTeam' };
+
 module.exports = async (url, opts = {}) => {
+  // Lantern Pack
+  if (url === 'https://api.modrinth.com/v2/project/LANTERN') return json(lanProject);
+  if (url.startsWith('https://api.modrinth.com/v2/project/LANTERN/version')) return json([lanVersion('4.2.0'), lanVersion('4.1.9')]);
+  if (url === 'https://api.modrinth.com/v2/version/lan419') return json(lanVersion('4.1.9'));
+  if (url === 'https://api.modrinth.com/v2/version/lan420') return json(lanVersion('4.2.0'));
+  const lanArchive = url.match(/^https:\/\/cdn\.modrinth\.com\/data\/LANTERN\/versions\/(lan\d+)\/lantern-([\d.]+)\.mrpack$/);
+  if (lanArchive) return new Response(lanterPack(lanArchive[2]));
+  if (url === 'https://cdn.modrinth.com/data/LANTERN/images/banner.png') return new Response(lanternBanner(), { headers: { 'content-type': 'image/png' } });
+  if (lanFiles[url] || /\/versions\/[a-z]+-\d+\//.test(url)) { for (const pv of Object.keys(LANTERN_MODS)) lanterPack(pv); if (lanFiles[url]) return new Response(lanFiles[url]); }
+  const teams = url.match(/api\.modrinth\.com\/v2\/teams\?ids=(.+)$/);
+  if (teams) return json(JSON.parse(decodeURIComponent(teams[1])).map((t) => [{ team_id: t, role: 'Owner', is_owner: true, user: { username: TEAM_OWNERS[t] || 'someone' } }]));
+  const vids = url.match(/api\.modrinth\.com\/v2\/versions\?ids=(.+)$/);
+  if (vids) {
+    const all = Object.entries(LANTERN_MODS).flatMap(([, mods]) => mods.map(([pid, , , ver]) => ({ id: lanVid(pid, ver), project_id: pid, version_number: ver, files: [], game_versions: ['26.1.2'], loaders: ['fabric'], dependencies: [] })));
+    return json(JSON.parse(decodeURIComponent(vids[1])).map((id) => all.find((v) => v.id === id)).filter(Boolean));
+  }
   if (url === 'https://textures.minecraft.net/texture/demo-skin') return new Response(demoSkin(), { headers: { 'content-type': 'image/png' } });
   if (url === 'https://api.modrinth.com/v2/project/TWIN') return json(twinMr);
   if (url.startsWith('https://api.modrinth.com/v2/project/TWIN/version')) return json([twinMrVersion()]);
@@ -157,7 +230,8 @@ module.exports = async (url, opts = {}) => {
   if (url === 'https://api.modrinth.com/v2/project/FLAKY') return json(flakyProject);
   if (url.endsWith('/v2/version_files') && opts.method === 'POST') return json({}); // nothing in a pack is known by hash
   if (url.startsWith('https://api.modrinth.com/v2/search') && url.includes('project_type%3Amodpack')) {
-    return json({ total_hits: 3, hits: [
+    return json({ total_hits: 4, hits: [
+      { ...mr('LANTERN', 'lantern-pack', 'Lantern Pack', 'LanternTeam', 'A linked modpack with a newer version (4.1.9 → 4.2.0). Install 4.1.9 from its versions to try pack updates.', 310000, ['adventure']), project_type: 'modpack' },
       { ...mr('TWIN', 'twin-pack', 'Twin Pack', 'demo', 'The same pack on both sites. Click Install to try the "Install from…" window.', 1200000, ['adventure']), project_type: 'modpack' },
       { ...mr('FLAKY', 'flaky-pack', 'Flaky Pack', 'demo', 'A pack whose download server has a bad day. Try the retry and repair buttons.', 4200, ['adventure']), project_type: 'modpack' },
       { ...mr('SLOW', 'slow-pack', 'Slow Pack', 'demo', 'Big files on a slow connection. Watch the Activity panel (pause, resume, cancel).', 900, ['adventure']), project_type: 'modpack' },

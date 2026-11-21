@@ -10,11 +10,13 @@ async function refreshInstanceHeader() {
   slot.replaceChildren(playButton(currentInstance, 'lg'));
 }
 
-async function renderInstance({ id, tab = 'mod' }, token) {
+async function renderInstance(params, token) {
+  const { id, tab = 'mod' } = params;
   const inst = await call('inst:get', id);
   if (stale(token)) return;
   currentInstance = inst;
   if (inst.state) state.running.set(id, inst.state);
+  if (inst.linked) { await renderPackInstance(inst, params, token); return; }
   const tabs = [
     { id: 'mod', label: 'Mods', icon: 'box', hide: inst.loader?.type === 'vanilla' },
     { id: 'resourcepack', label: 'Resource packs', icon: 'grid' },
@@ -82,9 +84,10 @@ function instanceMenu(anchor, inst) {
     { label: 'Export as Modrinth pack (.mrpack)', icon: 'upload', onClick: () => exportDialog(inst, 'mrpack') },
     { label: 'Export as CurseForge pack (.zip)', icon: 'upload', onClick: () => exportDialog(inst, 'curseforge') },
   ];
-  if (inst.pack && ['modrinth', 'curseforge'].includes(inst.pack.source)) {
-    items.push('-', { label: 'Check for modpack update', icon: 'refresh', onClick: () => packUpdateFlow(inst) },
-      { label: 'Repair modpack', icon: 'refresh', onClick: () => repairFlow(inst) });
+  if (inst.linked) {
+    items.push('-', { label: 'Switch modpack version…', icon: 'refresh', onClick: () => switchVersionDialog(inst) },
+      { label: 'Repair modpack', icon: 'refresh', onClick: () => repairFlow(inst) },
+      { label: 'Modpack settings', icon: 'sliders', onClick: () => go('instance', { id: inst.id, tab: 'settings' }) });
   }
   items.push('-',
     { label: 'Open mods folder', icon: 'folder', onClick: () => call('inst:openFolder', inst.id, 'mods') },
@@ -94,19 +97,6 @@ function instanceMenu(anchor, inst) {
       try { await call('inst:delete', inst.id); toast(`Deleted ${inst.name}`); go('library'); } catch (e) { toast(e.message, 'error'); }
     } });
   popupMenu(anchor, items);
-}
-
-async function packUpdateFlow(inst) {
-  try {
-    const u = await call('pack:checkUpdate', inst.id);
-    if (!u) { toast(`${inst.pack.name} is up to date`, 'good'); return; }
-    const ok = await confirmDialog(`Update ${inst.pack.name}?`,
-      `Version ${u.versionName} is available (you have ${inst.pack.versionName}). Mods from the pack will be replaced. Mods you added yourself stay, and your config folder is backed up first.`, 'Update');
-    if (!ok) return;
-    const r = await call('pack:update', inst.id, u.versionId);
-    await handleInstallResult(r, inst.id);
-    go('instance', { id: inst.id });
-  } catch (e) { toast(e.message, 'error'); }
 }
 
 // ----- logs tab
@@ -168,16 +158,16 @@ async function renderInstSettings(inst, root) {
       lvWrap.replaceChildren(select(list.map((v) => ({ value: v.version, label: `${v.version}${v.recommended ? ' (recommended)' : ''}` })), loaderVersion, (v) => { loaderVersion = v; }));
     } catch (e) { lvWrap.replaceChildren(h('div', { class: 'hint' }, e.message)); }
   }
-  loadLv();
+  if (!inst.linked) loadLv();
+  const locked = inst.linked;
   const save = async () => {
-    const changedGame = mc !== inst.mcVersion || loader !== (inst.loader?.type || 'vanilla') || (loaderVersion || null) !== (inst.loader?.version || null);
+    const changedGame = !locked && mc !== inst.mcVersion || loader !== (inst.loader?.type || 'vanilla') || (loaderVersion || null) !== (inst.loader?.version || null);
     if (changedGame && !(await confirmDialog('Change game version?', 'Mods made for the old version or loader may not work and may need updating. Worlds opened in a newer version can\'t safely go back.', 'Change it'))) return;
     const w = Number(f.width.value) || 0;
     const hgt = Number(f.height.value) || 0;
     await call('inst:update', inst.id, {
       name: f.name.value.trim() || inst.name,
-      mcVersion: mc,
-      loader: loader === 'vanilla' ? { type: 'vanilla' } : { type: loader, version: loaderVersion },
+      ...(locked ? {} : { mcVersion: mc, loader: loader === 'vanilla' ? { type: 'vanilla' } : { type: loader, version: loaderVersion } }),
       memoryMax: Number(f.memMax.value) || null,
       memoryMin: Number(f.memMin.value) || null,
       jvmArgs: f.jvm.value.trim(),
@@ -188,13 +178,16 @@ async function renderInstSettings(inst, root) {
     toast('Saved', 'good');
     go('instance', { id: inst.id, tab: 'settings' });
   };
+  const lockedField = (label, value) => h('label', { class: 'field', title: `Set by ${inst.pack?.name}. Unlink the modpack to change it.` }, h('span', { class: 'row', style: { gap: '6px' } }, label, icon('lock', 12)), h('input', { type: 'text', value, disabled: true }));
   root.replaceChildren(
+    locked ? packSettingsSection(inst) : null,
     h('div', { class: 'section' }, h('h3', null, 'General'),
+      locked ? h('p', null, `${inst.pack.name} sets the Minecraft version and the loader. Unlink the modpack below to change them.`) : null,
       h('div', { class: 'form-grid' },
         h('label', { class: 'field' }, 'Name', f.name),
-        h('label', { class: 'field' }, 'Minecraft version', select(versions.map((v) => ({ value: v.id, label: v.type === 'release' ? v.id : `${v.id} (${v.type})` })), mc, (v) => { mc = v; loadLv(); })),
-        h('label', { class: 'field' }, 'Loader', select(Object.entries(LOADER).map(([k, l]) => ({ value: k, label: l })), loader, (v) => { loader = v; loadLv(); })),
-        h('label', { class: 'field' }, 'Loader version', lvWrap))),
+        locked ? lockedField('Minecraft version', inst.mcVersion) : h('label', { class: 'field' }, 'Minecraft version', select(versions.map((v) => ({ value: v.id, label: v.type === 'release' ? v.id : `${v.id} (${v.type})` })), mc, (v) => { mc = v; loadLv(); })),
+        locked ? lockedField('Loader', LOADER[inst.loader?.type] || inst.loader?.type || 'Vanilla') : h('label', { class: 'field' }, 'Loader', select(Object.entries(LOADER).map(([k, l]) => ({ value: k, label: l })), loader, (v) => { loader = v; loadLv(); })),
+        locked ? lockedField('Loader version', inst.loader?.version || '—') : h('label', { class: 'field' }, 'Loader version', lvWrap))),
     h('div', { class: 'section' }, h('h3', null, 'Java & memory'),
       h('p', null, `Leave empty to use the defaults from Settings (${s.memoryMax} MB max). Java is downloaded automatically in the version Minecraft needs.`),
       h('div', { class: 'form-grid' },

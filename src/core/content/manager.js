@@ -3,7 +3,7 @@
 const fs = require('fs');
 const fsp = fs.promises;
 const path = require('path');
-const { TYPE_DIR, DIR_TYPE } = require('../instances');
+const { TYPE_DIR, DIR_TYPE, isLinkedPack } = require('../instances');
 const { compatibleLoaders } = require('../sources');
 const { CurseForge, LOADER_TYPE } = require('../sources/curseforge');
 const { curseFingerprintFile } = require('../sources/fingerprint');
@@ -75,7 +75,7 @@ class ContentManager {
     for (const t of Object.keys(TYPE_DIR)) {
       for (const it of await this.instances.listContent(instId, t)) {
         if (it.projectId != null && it.source !== 'local') {
-          out.projects[`${it.source}:${it.projectId}`] = { file: it.file, versionId: it.versionId != null ? String(it.versionId) : null, enabled: it.enabled, type: t };
+          out.projects[`${it.source}:${it.projectId}`] = { file: it.file, versionId: it.versionId != null ? String(it.versionId) : null, enabled: it.enabled, type: t, fromPack: it.fromPack };
         }
         out.titles.push(matchKey(it.title));
         if (it.modId) out.modIds.push(matchKey(it.modId));
@@ -85,6 +85,14 @@ class ContentManager {
   }
 
   /** Summary of what's installed, for duplicate / dependency checks. */
+  /** The files of a linked modpack that only the pack may change (empty for other instances). */
+  async lockedRels(instId, rels = null) {
+    const inst = await this.instances.get(instId);
+    if (!isLinkedPack(inst)) return [];
+    const idx = await this.instances.readIndex(instId);
+    return (rels || Object.keys(idx.files)).filter((r) => idx.files[r]?.fromPack);
+  }
+
   async installedSummary(instId) {
     const idx = await this.instances.readIndex(instId);
     const byProject = new Map();
@@ -104,6 +112,7 @@ class ContentManager {
    */
   async installVersion(instId, version, { type = 'mod', project = null, withDeps = true, fromPack = false, report = () => {} } = {}) {
     const inst = await this.instances.get(instId);
+    const linked = isLinkedPack(inst) && !fromPack;
     const result = { installed: [], skipped: [], blocked: [], warnings: [] };
     const queue = [{ version, project, type, explicit: true }];
     const seen = new Set();
@@ -117,6 +126,14 @@ class ContentManager {
       const title = proj?.title || v.name;
       const summary = await this.installedSummary(instId);
 
+      // The modpack already has it: never a second copy, and the pack's own file stays as the pack set it.
+      if (linked) {
+        const rel0 = summary.byProject.get(key) || summary.titles.get(matchKey(title));
+        if (rel0 && summary.idx.files[rel0]?.fromPack) {
+          result.skipped.push({ title, reason: 'already included in the modpack' });
+          continue;
+        }
+      }
       if (!job.explicit) {
         // Dependency: skip if already present from either platform.
         if (summary.byProject.has(key) || summary.titles.has(matchKey(title))) {
@@ -155,6 +172,11 @@ class ContentManager {
       // Same mod id already present (e.g. from the other platform)?
       if (meta?.modId && summary.modIds.has(meta.modId) && summary.modIds.get(meta.modId) !== rel) {
         const other = summary.modIds.get(meta.modId);
+        if (linked && summary.idx.files[other]?.fromPack) {
+          await fsp.rm(dest, { force: true });
+          result.skipped.push({ title, reason: 'already included in the modpack' });
+          continue;
+        }
         if (job.explicit) {
           await this.removeFiles(instId, [other]);
           result.warnings.push(`Replaced ${path.basename(other)} (same mod "${meta.modId}") with ${file.filename}`);
@@ -436,6 +458,8 @@ class ContentManager {
       for (const item of await this.instances.listContent(instId, t)) all.push({ ...item, type: t });
     }
     const idx = await this.instances.readIndex(instId);
+    // A linked modpack's own files follow the pack (its updates), so only your additions are checked.
+    if (isLinkedPack(inst)) for (let k = all.length - 1; k >= 0; k--) if (all[k].fromPack) all.splice(k, 1);
     const updates = [];
     const loaders = compatibleLoaders(inst.loader?.type, inst.mcVersion);
 
@@ -507,9 +531,11 @@ class ContentManager {
     const bdir = path.join(this.backupsDir(instId), stamp);
     const before = await this.instances.readIndex(instId);
     const record = { stamp, date: Date.now(), items: [] };
+    const locked = new Set(await this.lockedRels(instId, updates.map((u) => u.file)));
     let i = 0;
     for (const u of updates) {
       if (!u.version) continue;
+      if (locked.has(u.file)) { out.warnings.push(`${u.title} is part of the modpack. It changes with pack updates.`); continue; }
       report(i++ / updates.length, `Updating ${u.title}`);
       const onPath = this.instances.contentPath(instId, u.file, true);
       const offPath = this.instances.contentPath(instId, u.file, false);
