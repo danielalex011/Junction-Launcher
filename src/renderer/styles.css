@@ -252,6 +252,7 @@ details.adv > summary:hover { color: var(--text); }
 @keyframes fade { from { opacity: 0; } }
 .modal { background: var(--panel); border: 1px solid var(--border); border-radius: 14px; width: min(560px, 100%); max-height: calc(100vh - 48px); display: flex; flex-direction: column; box-shadow: 0 30px 80px rgba(0,0,0,.5); }
 .modal.wide { width: min(980px, 100%); height: calc(100vh - 48px); }
+.modal.wide.fit { height: auto; }
 .modal .m-head { display: flex; align-items: center; gap: 12px; padding: 16px 18px; border-bottom: 1px solid var(--border); }
 .modal .m-head h2 { margin: 0; font-size: 17px; flex: 1; }
 .modal .m-body { padding: 18px; overflow: auto; display: flex; flex-direction: column; gap: 14px; flex: 1; min-height: 0; }

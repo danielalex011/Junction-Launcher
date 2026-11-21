@@ -68,3 +68,24 @@ test('the preferred-site setting defaults to asking', () => {
   const { defaults } = require('../src/core/settings');
   assert.equal(defaults().preferredSource, 'ask');
 });
+
+test('compareSources: same version number on both sites is not "newer", even uploaded a day apart', async () => {
+  const lists = { modrinth: [ver('m', 'release', 1, { versionNumber: 'v4.1.9' })], curseforge: [ver('c', 'release', 3, { versionNumber: '4.1.9', source: 'curseforge' })] };
+  const r = await compareSources({ alts, type: 'modpack', loadVersions: async (s) => lists[s] });
+  assert.equal(r.options[0].newer, undefined);
+  assert.equal(r.options[1].newer, undefined);
+  assert.match(r.notes.join('\n'), /Same version \(v4\.1\.9\) on both sites/);
+  assert.doesNotMatch(r.notes.join('\n'), /Newer/);
+});
+
+test('compareSources: different version numbers decide "newer" before dates', async () => {
+  const lists = { modrinth: [ver('m', 'release', 1, { versionNumber: '4.1.9' })], curseforge: [ver('c', 'release', 9, { versionNumber: '4.2.0', source: 'curseforge' })] };
+  const r = await compareSources({ alts, type: 'modpack', loadVersions: async (s) => lists[s] });
+  assert.equal(r.options[1].newer, true);
+});
+
+test('compareSources: CurseForge listing extra Minecraft versions is not a mismatch', async () => {
+  const lists = { modrinth: [ver('m', 'release', 1, { gameVersions: ['1.20.1'] })], curseforge: [ver('c', 'release', 1, { gameVersions: ['1.20.1', '1.20'], source: 'curseforge' })] };
+  const r = await compareSources({ alts, type: 'modpack', loadVersions: async (s) => lists[s] });
+  assert.doesNotMatch(r.notes.join('\n'), /Different Minecraft/);
+});

@@ -191,6 +191,7 @@ function installFromDialog(hit, alts, target) {
     const remember = h('input', { type: 'checkbox' });
     const body = h('div', { class: 'src-compare' }, loading('Checking Modrinth and CurseForge…'));
     const m = modal({ title: `Install ${hit.title} from…`, body, wide: true, onClose: () => { if (!answered) resolve(null); } });
+    m.el.classList.add('fit');
     const pick = async (o) => {
       answered = true;
       if (remember.checked) {

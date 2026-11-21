@@ -34,6 +34,28 @@ function summarizeVersion(v) {
 
 const list = (a) => (a || []).join(', ');
 
+const numParts = (s) => { const m = /^\d+(?:\.\d+)*/.exec(String(s || '').trim().replace(/^v/i, '')); return m ? m[0].split('.').map(Number) : null; };
+const cmpParts = (x, y) => { for (let i = 0; i < Math.max(x.length, y.length); i++) { const d = (x[i] || 0) - (y[i] || 0); if (d) return d; } return 0; };
+
+/** 0 = same version, >0 / <0 = a is newer / older, null = can't tell from the numbers alone. */
+function compareVersionNumbers(a, b) {
+  const norm = (s) => String(s || '').trim().replace(/^v/i, '').toLowerCase();
+  if (!norm(a) || !norm(b)) return null;
+  if (norm(a) === norm(b)) return 0;
+  const pa = numParts(a); const pb = numParts(b);
+  if (!pa || !pb) return null;
+  const d = cmpParts(pa, pb);
+  // Same numbers but different suffixes (4.1.9 vs 4.1.9-beta): not comparable.
+  return d === 0 ? null : d;
+}
+
+/** The newest release-style Minecraft version in a list ("1.20.1" of ["1.20.1", "1.20"]); CurseForge tags extra versions, so only this one is compared. */
+function newestMc(versions) {
+  const vs = (versions || []).map(String);
+  const nums = vs.filter((v) => /^\d+(\.\d+)*$/.test(v)).sort((x, y) => cmpParts(numParts(y), numParts(x)));
+  return nums[0] || vs.slice().sort().join(',');
+}
+
 /** Sets `reason` on options with no version, `newer` on the fresher one, and returns sentences about what differs (only options that have a version are compared). */
 function differences(options, { type, mcVersion } = {}) {
   const notes = [];
@@ -47,11 +69,20 @@ function differences(options, { type, mcVersion } = {}) {
   const have = options.filter((o) => o.version);
   if (have.length < 2) return notes;
   const [a, b] = have;
-  const gap = new Date(a.version.date) - new Date(b.version.date);
-  if (Number.isFinite(gap) && Math.abs(gap) > DAY) {
-    const newer = gap > 0 ? a : b;
-    a.newer = gap > 0; b.newer = gap < 0;
-    notes.push(`Newer on ${SITE[newer.source]} (${new Date(newer.version.date).toISOString().slice(0, 10)} vs ${new Date((newer === a ? b : a).version.date).toISOString().slice(0, 10)}).`);
+  const cmp = compareVersionNumbers(a.version.versionNumber, b.version.versionNumber);
+  if (cmp === 0) {
+    notes.push(`Same version (${a.version.versionNumber}) on both sites.`);
+  } else {
+    let gap = cmp; // numbers decide when they can be compared; otherwise fall back to upload dates
+    if (gap === null) {
+      gap = new Date(a.version.date) - new Date(b.version.date);
+      if (!Number.isFinite(gap) || Math.abs(gap) <= DAY) gap = 0;
+    }
+    if (gap !== 0) {
+      const newer = gap > 0 ? a : b;
+      a.newer = gap > 0; b.newer = gap < 0;
+      notes.push(`Newer on ${SITE[newer.source]} (${newer.version.versionNumber} vs ${(newer === a ? b : a).version.versionNumber}).`);
+    }
   }
   if ((RANK[a.version.releaseType] ?? 3) !== (RANK[b.version.releaseType] ?? 3)) {
     const worse = (RANK[a.version.releaseType] ?? 3) > (RANK[b.version.releaseType] ?? 3) ? a : b;
@@ -59,7 +90,7 @@ function differences(options, { type, mcVersion } = {}) {
   }
   if (type === 'modpack') {
     const mcA = list(a.version.gameVersions); const mcB = list(b.version.gameVersions);
-    if (mcA && mcB && mcA !== mcB) notes.push(`Different Minecraft versions: ${mcA} on ${SITE[a.source]}, ${mcB} on ${SITE[b.source]}.`);
+    if (mcA && mcB && newestMc(a.version.gameVersions) !== newestMc(b.version.gameVersions)) notes.push(`Different Minecraft versions: ${mcA} on ${SITE[a.source]}, ${mcB} on ${SITE[b.source]}.`);
     const lA = list(a.version.loaders); const lB = list(b.version.loaders);
     if (lA && lB && lA !== lB) notes.push(`Different loaders: ${lA} on ${SITE[a.source]}, ${lB} on ${SITE[b.source]}.`);
   }

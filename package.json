@@ -1,6 +1,6 @@
 {
   "name": "junction-launcher",
-  "version": "0.1.16",
+  "version": "0.1.17",
   "description": "A Minecraft launcher that installs mods and modpacks from both Modrinth and CurseForge. No ads, no telemetry.",
   "main": "src/main/main.js",
   "scripts": {
