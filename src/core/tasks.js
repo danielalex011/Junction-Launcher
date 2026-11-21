@@ -46,6 +46,12 @@ function computeEta(remainingBytes, bytesPerSecond) {
   return Math.ceil(remainingBytes / bytesPerSecond);
 }
 
+/** Seconds left from how fast whole files finish; needs a few done files to mean anything. */
+function computeFilesEta(remainingFiles, filesDone, elapsedMs) {
+  if (!(remainingFiles > 0) || filesDone < 3 || !(elapsedMs > 0)) return null;
+  return Math.ceil(remainingFiles / (filesDone / (elapsedMs / 1000)));
+}
+
 /** One plain sentence for the UI: never HTML, never a URL. */
 function readable(err) {
   const msg = String(err?.message || err || 'Something went wrong');
@@ -91,7 +97,7 @@ class TaskManager extends EventEmitter {
     const task = {
       id, title, kind, icon, instanceId, heavy, createsInstance, status: 'running', cancelling: false,
       progress: null, step: '', error: null, started: Date.now(), finished: null,
-      bytesDone: 0, bytesTotal: 0, filesDone: 0, filesTotal: 0, speed: 0, eta: null,
+      bytesDone: 0, bytesTotal: 0, plannedBytes: 0, sizeUnknown: false, filesDone: 0, filesTotal: 0, speed: 0, eta: null,
       activeFiles: [], failedFiles: [], failedCount: 0,
     };
     const ctl = {
@@ -132,6 +138,8 @@ class TaskManager extends EventEmitter {
       // --- used by http.download() and pool() ---
       pauseSignal: () => ctl.pauseAc.signal,
       waitIfPaused: () => (ctl.pauseAc.signal.aborted ? abortable(new Promise((r) => ctl.waiters.push(r)), ctl.ac.signal) : Promise.resolve()),
+      /** Total size of the files about to be downloaded, known up front; null when any size is unknown (then no total is shown). */
+      planBytes: (bytes) => { if (bytes > 0) task.plannedBytes += bytes; else task.sizeUnknown = true; emit(false); },
       addFiles: (n) => { task.filesTotal += n; emit(false); },
       fileDone: () => { task.filesDone += 1; emit(false); },
       addSkipped: (bytes) => { if (bytes > 0) { task.bytesDone += bytes; task.bytesTotal += bytes; emit(false); } },
@@ -331,10 +339,20 @@ class TaskManager extends EventEmitter {
     const now = Date.now();
     const running = task.status === 'running';
     const speed = running && ctl ? ctl.meter.speed(now) : 0;
+    // A size known up front beats counting only the files that have started; with unknown sizes there is no total at all.
+    let bytesTotal = task.bytesTotal;
+    if (task.sizeUnknown) bytesTotal = 0;
+    else if (task.plannedBytes > 0) bytesTotal = Math.max(task.plannedBytes, task.bytesDone);
+    let eta = null;
+    if (running) {
+      if (bytesTotal > 0) eta = computeEta(bytesTotal - task.bytesDone, speed);
+      else if (task.sizeUnknown) eta = computeFilesEta(task.filesTotal - task.filesDone, task.filesDone, now - task.started);
+    }
     const snap = {
       ...task,
+      bytesTotal,
       speed,
-      eta: running ? computeEta(task.bytesTotal - task.bytesDone, speed) : null,
+      eta,
       activeFiles: ctl ? [...ctl.files.values()].slice(0, 8).map((f) => ({ ...f })) : [],
       failedFiles: task.failedFiles.slice(),
     };
@@ -380,4 +398,4 @@ class TaskManager extends EventEmitter {
   }
 }
 
-module.exports = { TaskManager, SpeedMeter, computeEta, readable };
+module.exports = { TaskManager, SpeedMeter, computeEta, computeFilesEta, readable };

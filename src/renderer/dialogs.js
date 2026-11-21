@@ -46,14 +46,14 @@ function modal({ title, body, actions = [], wide = false, onClose, headExtra }) 
   return { close, el: m, body: $('.m-body', m) };
 }
 
-function confirmDialog(title, text, okLabel = 'OK', danger = false) {
+function confirmDialog(title, text, okLabel = 'OK', danger = false, cancelLabel = 'Cancel') {
   return new Promise((resolve) => {
     let answered = false;
     modal({
       title,
       body: h('p', { style: { margin: 0, lineHeight: 1.5 } }, text),
       actions: [
-        { label: 'Cancel', class: 'ghost', onClick: () => { answered = true; resolve(false); } },
+        { label: cancelLabel, class: 'ghost', onClick: () => { answered = true; resolve(false); } },
         { label: okLabel, class: danger ? 'danger solid' : 'primary', onClick: () => { answered = true; resolve(true); } },
       ],
       onClose: () => { if (!answered) resolve(false); },

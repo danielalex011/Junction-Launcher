@@ -5,7 +5,7 @@ const assert = require('node:assert/strict');
 const fs = require('fs');
 const path = require('path');
 const { createContext } = require('../src/core/context');
-const { TaskManager, SpeedMeter, computeEta } = require('../src/core/tasks');
+const { TaskManager, SpeedMeter, computeEta, computeFilesEta } = require('../src/core/tasks');
 const { CancelledError } = require('../src/core/taskcontext');
 const { pool } = require('../src/core/util');
 const AdmZip = require('adm-zip');
@@ -377,4 +377,28 @@ test('updating an existing instance with a pack never deletes it when cancelled'
   ctx.tasks.cancel(id);
   await failed;
   assert.equal((await instances.list()).length, 1);
+});
+
+test('planned size: the total counts files that have not started, and the ETA uses the real remaining bytes', () => {
+  const tm = new TaskManager({ emitInterval: 0 });
+  const t = tm.create('Installing Pack');
+  t.planBytes(1000);
+  const h1 = t.fileStart('a.jar', 100);
+  h1.progress(100, 100);
+  h1.end(true);
+  const snap = tm.list()[0];
+  assert.equal(snap.bytesTotal, 1000);
+  assert.equal(snap.bytesDone, 100);
+  assert.ok(snap.progress === null || snap.progress <= 0.1);
+});
+
+test('unknown size: no byte total, ETA comes from files per second', () => {
+  const tm = new TaskManager({ emitInterval: 0 });
+  const t = tm.create('Installing Pack');
+  t.planBytes(null);
+  t.addFiles(10);
+  for (let i = 0; i < 4; i++) t.fileDone();
+  const snap = tm.list()[0];
+  assert.equal(snap.bytesTotal, 0);
+  assert.equal(computeFilesEta(6, 4, 4000), 6);
 });

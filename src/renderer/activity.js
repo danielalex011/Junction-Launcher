@@ -160,9 +160,15 @@ function buildTaskRow(t) {
   return row;
 }
 
+/** "Installing Craftoria" -> "Craftoria": finished rows already show the kind and the result. */
+function plainName(title) {
+  return String(title || '').replace(/^(Installing|Updating|Importing|Repairing|Preparing|Sending|Adding|Identifying|Checking for|Waiting for download…)\s+/i, '') || title;
+}
+
 async function cancelTask(t) {
   if (t.createsInstance) {
-    const ok = await confirmDialog(`Cancel ${t.title}?`, 'This stops the download and deletes the half-installed instance. Anything already downloaded for it is removed.', 'Cancel and delete', true);
+    closeActivity(); // the panel would cover the dialog
+    const ok = await confirmDialog(`Cancel installing ${plainName(t.title)}?`, 'This stops the download and deletes the half-installed instance. Anything already downloaded for it is removed.', 'Cancel and delete', true, 'Keep installing');
     if (!ok) return;
   }
   call('tasks:cancel', t.id).catch((e) => toast(e.message, 'error'));
@@ -198,7 +204,7 @@ function renderActivity() {
   r.badge.hidden = count === 0;
   if (!activityUi.open) return;
   const p = activityUi.panel;
-  activityUi.headInfo.textContent = count ? `${count} active${speed > 0 ? ` · ${fmtSpeed(speed)}` : ''}` : 'Idle';
+  activityUi.headInfo.textContent = count ? [`${running.length} active`, queued.length ? `${queued.length} queued` : null, speed > 0 ? fmtSpeed(speed) : null].filter(Boolean).join(' · ') : 'Idle';
   syncRows(p.active, running);
   syncRows(p.queued, queued);
   p.queuedHead.hidden = !queued.length;
@@ -236,7 +242,7 @@ function renderHistory() {
     return h('div', { class: `act-row done ${e.status} ${linkable ? 'link' : ''}`, onclick: linkable ? () => { closeActivity(); go('instance', { id: e.instanceId }); } : null },
       h('div', { class: 'act-top' }, taskIcon(e),
         h('div', { class: 'act-main' },
-          h('div', { class: 'act-title ellipsis', title: e.title }, e.title),
+          h('div', { class: 'act-title ellipsis', title: plainName(e.title) }, plainName(e.title)),
           h('div', { class: 'act-step' }, h('span', { class: 'kind-tag' }, KIND_LABELS[e.kind] || 'Task'), ` · ${ago(e.finished)}`),
           h('div', { class: `act-result ${e.status === 'done' && !e.failedCount ? 'good' : e.status === 'done' ? 'warn' : 'bad'}`, title: e.error || '' }, (FINISH_TEXT[e.status] || FINISH_TEXT.done)(e), retry ? ' → ' : '', retry)),
         h('div', { class: 'act-actions' },

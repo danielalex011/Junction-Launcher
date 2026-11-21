@@ -141,6 +141,11 @@ class Modpacks {
    */
   async downloadAll(jobs, run, progress = () => {}) {
     let done = 0;
+    const task = currentTask();
+    if (task?.planBytes) {
+      const sizes = jobs.map((j) => Number(j.fileSize ?? j.size) || 0);
+      task.planBytes(sizes.every((n) => n > 0) ? sizes.reduce((a, b) => a + b, 0) : null);
+    }
     const pass = (list, count) => pool(list, DOWNLOAD_CONCURRENCY, async (job) => { await run(job); done++; progress(done, jobs.length); }, { count });
     const first = await pass(jobs, true);
     const again = first.errors.filter((e) => isRetryable(e.error));
