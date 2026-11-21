@@ -270,6 +270,9 @@ async function play(inst) {
     if (e.code === 'NO_ACCOUNT') {
       const ok = await confirmDialog('Add an account first', 'You need a Microsoft account that owns Minecraft to play.', 'Add account');
       if (ok) openAccountMenu($('#account-chip'));
+    } else if (e.code === 'RELOGIN') {
+      toast(e.message, 'error');
+      openAccountMenu($('#account-chip'));
     } else if (e.code === 'NO_CLIENT_ID') {
       toast(e.message, 'error');
       go('settings');

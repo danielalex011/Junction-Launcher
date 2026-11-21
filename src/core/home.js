@@ -43,7 +43,7 @@ class Home {
     const byId = new Map(list.map((i) => [i.id, i]));
     const updates = Object.entries(cache.updates.byInstance)
       .filter(([id, n]) => byId.has(id) && n > 0)
-      .map(([id, count]) => ({ instanceId: id, name: byId.get(id).name, count }))
+      .map(([id, count]) => ({ instanceId: id, name: byId.get(id).name, count, icon: byId.get(id).icon || null, iconVersion: byId.get(id).iconVersion || 0 }))
       .sort((a, b) => b.count - a.count || a.name.localeCompare(b.name));
     const { items, fallback } = pickJumpBackIn(list);
     return {

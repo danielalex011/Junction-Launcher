@@ -2,7 +2,10 @@
 // Microsoft account sign-in (device code flow -> Xbox Live -> XSTS -> Minecraft)
 // plus offline accounts. Tokens are encrypted at rest with the OS keychain
 // (Electron safeStorage) when available.
+const fs = require('fs');
+const path = require('path');
 const crypto = require('crypto');
+const { skinUrlOf, downloadSkin } = require('../skin');
 const { readJson, writeJson } = require('../util');
 
 const MS = 'https://login.microsoftonline.com/consumers/oauth2/v2.0';
@@ -50,8 +53,33 @@ class Accounts {
   list() {
     return this.data.accounts.map((a) => ({
       id: a.id, type: a.type, name: a.name, uuid: a.uuid, active: a.id === this.data.active,
-      needsRelogin: Boolean(a.needsRelogin),
+      needsRelogin: Boolean(a.needsRelogin), skinAt: a.skinAt || 0,
     }));
+  }
+
+  skinFile(id) { return path.join(this.ctx.paths.skins, `${id}.png`); }
+
+  headFile(id) { return path.join(this.ctx.paths.skins, `${id}-head.png`); }
+
+  /** Downloads the account's skin from Mojang's texture server (once per skin). Never throws: the letter avatar is the fallback. */
+  async saveSkin(acc, profile) {
+    try {
+      const url = profile ? skinUrlOf(profile) : acc.skinUrl;
+      if (!url) return;
+      if (url === acc.skinUrl && acc.skinAt && fs.existsSync(this.skinFile(acc.id))) return;
+      await downloadSkin(this.ctx, url, this.skinFile(acc.id));
+      fs.rmSync(this.headFile(acc.id), { force: true });
+      acc.skinUrl = url;
+      acc.skinAt = Date.now();
+      await this.save();
+    } catch { /* offline, or no skin: keep the letter */ }
+  }
+
+  /** Retries skins that are known but not on disk (for example after a failed download). Safe to call in the background. */
+  async fetchMissingSkins() {
+    for (const a of this.data.accounts) {
+      if (a.type === 'msa' && a.skinUrl && !fs.existsSync(this.skinFile(a.id))) { a.skinAt = 0; await this.saveSkin(a, null); }
+    }
   }
 
   canAddOffline() {
@@ -68,6 +96,7 @@ class Accounts {
   async remove(id) {
     this.data.accounts = this.data.accounts.filter((a) => a.id !== id);
     if (this.data.active === id) this.data.active = this.data.accounts[0]?.id || null;
+    for (const f of [this.skinFile(id), this.headFile(id)]) fs.rmSync(f, { force: true });
     await this.save();
   }
 
@@ -190,16 +219,19 @@ class Accounts {
       id: `msa-${mc.profile.id}`, type: 'msa', name: mc.profile.name, uuid: mc.profile.id, xuid: mc.xuid, ownsGame: true,
       refreshToken: await enc(ms.refresh_token || ''), mcToken: await enc(mc.accessToken), mcTokenExpires: mc.expiresAt,
     };
+    const old = this.data.accounts.find((a) => a.id === acc.id);
+    if (old?.skinUrl) { acc.skinUrl = old.skinUrl; acc.skinAt = old.skinAt; }
     this.data.accounts = this.data.accounts.filter((a) => a.id !== acc.id).concat(acc);
     this.data.active = acc.id;
     await this.save();
+    await this.saveSkin(acc, mc.profile);
     return { id: acc.id, name: acc.name, uuid: acc.uuid, type: 'msa' };
   }
 
   /** Returns launch credentials for the active account, refreshing tokens if needed. */
   async launchCredentials() {
     const acc = this.data.accounts.find((a) => a.id === this.data.active);
-    if (!acc) throw new AuthError('Add an account first (Accounts page).', 'NO_ACCOUNT');
+    if (!acc) throw new AuthError('Add an account first: click the account at the bottom left.', 'NO_ACCOUNT');
     if (acc.type === 'offline') {
       return { name: acc.name, uuid: acc.uuid, accessToken: '0', userType: 'legacy', xuid: '0', offline: true };
     }
@@ -225,6 +257,7 @@ class Accounts {
       acc.xuid = mc.xuid || acc.xuid;
       acc.needsRelogin = false;
       await this.save();
+      this.saveSkin(acc, mc.profile); // in the background; a slow skin server must not delay the game
     }
     return { name: acc.name, uuid: acc.uuid, accessToken: await dec(acc.mcToken), userType: 'msa', xuid: acc.xuid || '0', offline: false };
   }

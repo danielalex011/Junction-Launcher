@@ -54,15 +54,18 @@ function drawHome(d) {
   }
 
   if (!d.empty) {
-    const rows = d.updates.map((u) => h('div', { class: 'item home-upd' },
-      h('div', { class: 'grow' },
-        h('div', { class: 'i-title ellipsis' }, u.name),
-        h('div', { class: 'i-file' }, `${u.count} update${u.count === 1 ? '' : 's'} available`)),
-      h('button', { class: 'btn sm primary', type: 'button', onclick: (e) => reviewHomeUpdates(u, e.currentTarget) }, icon('arrowUp'), 'Review')));
+    const rows = d.updates.map((u) => h('div', { class: 'card home-card home-upd' },
+      h('div', { class: 'c-top' }, avatar(u),
+        h('div', { class: 'grow' },
+          h('div', { class: 'c-name', title: u.name }, u.name),
+          h('div', { class: 'c-sub' }, `${u.count} update${u.count === 1 ? '' : 's'}`))),
+      h('div', { class: 'c-foot' },
+        h('span', null),
+        h('button', { class: 'btn sm primary', type: 'button', onclick: (e) => reviewHomeUpdates(u, e.currentTarget) }, icon('arrowUp'), 'Review'))));
     const checking = homeUi.refreshing && d.updatesStale;
     sections.push(homeSection('Updates available',
       h('span', { class: 'muted small' }, checking ? 'Checking…' : d.updatesCheckedAt ? `Checked ${ago(d.updatesCheckedAt)}` : 'Not checked yet'),
-      rows.length ? h('div', { class: 'list' }, rows)
+      rows.length ? h('div', { class: 'home-recent' }, rows)
         : h('div', { class: 'home-note' }, checking ? 'Checking your instances for updates…' : d.updatesCheckedAt ? 'Everything is up to date.' : 'Junction checks in the background.')));
   }
 

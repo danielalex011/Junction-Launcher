@@ -10,6 +10,7 @@ const { Accounts } = require('../core/auth/accounts');
 const { Instances } = require('../core/instances');
 const { createSources, searchAll, compatibleLoaders } = require('../core/sources');
 const { Home } = require('../core/home');
+const { composeHead } = require('../core/skin');
 const { compareSources } = require('../core/sources/choose');
 const { ContentManager } = require('../core/content/manager');
 const { Modpacks } = require('../core/content/modpacks');
@@ -31,7 +32,10 @@ const blockedSessions = new Map();
 let pendingOpenFiles = [];
 
 // Instance pictures stored on disk are shown through junction-icon://<instance-id>/
-protocol.registerSchemesAsPrivileged([{ scheme: 'junction-icon', privileges: { standard: true, secure: true, supportFetchAPI: true } }]);
+protocol.registerSchemesAsPrivileged([
+  { scheme: 'junction-icon', privileges: { standard: true, secure: true, supportFetchAPI: true } },
+  { scheme: 'junction-skin', privileges: { standard: true, secure: true, supportFetchAPI: true } }, // account heads: junction-skin://<account-id>/
+]);
 
 if (!app.requestSingleInstanceLock()) {
   app.quit();
@@ -57,6 +61,22 @@ const osCrypto = {
     return Buffer.from(s.replace(/^b64:/, ''), 'base64').toString('utf8');
   },
 };
+
+/** The cropped face + hat of an account's cached skin as a PNG (made on first use, then kept next to the skin). */
+function accountHead(id) {
+  try {
+    const head = accounts.headFile(id);
+    const raw = accounts.skinFile(id);
+    if (!fs.existsSync(raw)) return null;
+    if (fs.existsSync(head) && fs.statSync(head).mtimeMs >= fs.statSync(raw).mtimeMs) return fs.readFileSync(head);
+    const img = nativeImage.createFromBuffer(fs.readFileSync(raw));
+    const { width, height } = img.getSize();
+    const bmp = composeHead(img.toBitmap(), width, height, 8);
+    const png = nativeImage.createFromBitmap(bmp, { width: 64, height: 64 }).toPNG();
+    fs.writeFileSync(head, png);
+    return png;
+  } catch { return null; }
+}
 
 function send(channel, payload) {
   if (win && !win.isDestroyed()) win.webContents.send(channel, payload);
@@ -236,8 +256,9 @@ function registerIpc() {
     home.record(id, r.filter((u) => !u.error).length).catch(() => {}); // keeps Home's "Updates available" in step
     return r;
   });
-  handle('home:state', async () => home.state());
-  handle('home:refresh', async (opts) => { await home.refresh(opts || {}); return home.state(); });
+  const homeView = (d) => ({ ...d, recent: d.recent.map(withState), updates: d.updates.map((u) => ({ ...u, iconSrc: withState({ ...u, id: u.instanceId }).iconSrc })) });
+  handle('home:state', async () => homeView(await home.state()));
+  handle('home:refresh', async (opts) => { await home.refresh(opts || {}); return homeView(await home.state()); });
   handle('content:applyUpdates', async (id, updates) => {
     if (running.has(id)) throw new Error('Close the game before updating its mods.');
     const r = await ctx.tasks.run(`Updating ${updates.length} files`, (t) => content.applyUpdates(id, updates, t.update), { instanceId: id, kind: 'update', icon: 'mod' });
@@ -388,7 +409,10 @@ function registerIpc() {
   handle('import:run', async (info, choices) => ctx.tasks.run(`Importing ${choices.name || info.name}`, (t) => importInstance({ instances, content }, info, choices, t.update), { kind: 'import', icon: 'instance', heavy: true, createsInstance: true }));
 
   // --- accounts
-  handle('accounts:list', async () => ({ accounts: accounts.list(), canAddOffline: accounts.canAddOffline() }));
+  handle('accounts:list', async () => ({
+    accounts: accounts.list().map((a) => ({ ...a, iconSrc: a.skinAt ? `junction-skin://${a.id}/?v=${a.skinAt}` : null })),
+    canAddOffline: accounts.canAddOffline(),
+  }));
   handle('accounts:beginMs', async () => accounts.beginMicrosoftLogin());
   handle('accounts:completeMs', async (loginId) => accounts.completeMicrosoftLogin(loginId));
   handle('accounts:cancelMs', async (loginId) => accounts.cancelLogin(loginId));
@@ -502,6 +526,12 @@ app.whenReady().then(async () => {
     if (!file) return new Response('not found', { status: 404 });
     return net.fetch(pathToFileURL(file).toString());
   });
+  protocol.handle('junction-skin', async (req) => {
+    const id = new URL(req.url).hostname;
+    const png = /^[a-z0-9-]+$/.test(id) ? accountHead(id) : null;
+    return png ? new Response(png, { headers: { 'content-type': 'image/png' } }) : new Response('not found', { status: 404 });
+  });
+  accounts.fetchMissingSkins().then(() => send('accounts:changed')).catch(() => {});
   pendingOpenFiles.push(...packFilesFromArgv(process.argv));
   registerIpc();
   createWindow();

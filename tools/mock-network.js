@@ -5,7 +5,7 @@
 // Modrinth/CurseForge search results and versions. Everything else returns 503.
 const crypto = require('crypto');
 const AdmZip = require('adm-zip');
-const { fabricJar } = require('../test/helpers');
+const { fabricJar, demoSkin } = require('../test/helpers');
 const json = (o) => new Response(JSON.stringify(o), { headers: { 'content-type': 'application/json' } });
 const daysAgo = (d) => new Date(Date.now() - d * 864e5).toISOString();
 
@@ -126,6 +126,7 @@ const twinCf = () => ({
 });
 
 module.exports = async (url, opts = {}) => {
+  if (url === 'https://textures.minecraft.net/texture/demo-skin') return new Response(demoSkin(), { headers: { 'content-type': 'image/png' } });
   if (url === 'https://api.modrinth.com/v2/project/TWIN') return json(twinMr);
   if (url.startsWith('https://api.modrinth.com/v2/project/TWIN/version')) return json([twinMrVersion()]);
   if (url === 'https://api.modrinth.com/v2/version/twin1') return json(twinMrVersion());

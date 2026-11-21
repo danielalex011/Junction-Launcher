@@ -38,5 +38,10 @@ const { fabricJar } = require('../test/helpers');
   // A second, empty instance to send things to.
   await instances.create({ name: 'Fabric 26.1.2 test', mcVersion: '26.1.2', loader: { type: 'fabric', version: '0.17.3' } });
   fs.writeFileSync(path.join(instances.instDir(a.id), 'content.json'), JSON.stringify(idx));
+  // A signed-in account whose skin is on the mock texture server, and an offline one (letter avatar).
+  fs.writeFileSync(ctx.paths.accountsFile, JSON.stringify({ active: 'msa-demo', accounts: [
+    { id: 'msa-demo', type: 'msa', name: 'DemoPlayer', uuid: 'demo', ownsGame: true, skinUrl: 'https://textures.minecraft.net/texture/demo-skin' },
+    { id: 'offline-steve', type: 'offline', name: 'Steve', uuid: 'steve' },
+  ] }));
   console.log(`Demo data in ${dir}`);
 })();

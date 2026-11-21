@@ -112,7 +112,7 @@ const SRC = { modrinth: 'Modrinth', curseforge: 'CurseForge', local: 'Local', pa
 
 function avatar(item, size = '') {
   const src = item.iconSrc || item.icon;
-  const url = src && /^((https|junction-icon):\/\/|data:image\/(png|jpeg|gif|webp);base64,)/.test(src) ? src : null;
+  const url = src && /^((https|junction-icon|junction-skin):\/\/|data:image\/(png|jpeg|gif|webp);base64,)/.test(src) ? src : null;
   const label = (item.name || item.title || '?').trim();
   if (url) {
     const img = h('img', { class: `avatar ${size}`, src: url, alt: '', loading: 'lazy', referrerpolicy: 'no-referrer' });

@@ -9,7 +9,7 @@ async function renderAccountChip() {
     const { accounts } = await call('accounts:list');
     const active = accounts.find((a) => a.active);
     chip.replaceChildren(
-      active ? avatar({ name: active.name }, 'xs') : h('div', { class: 'avatar xs', style: { background: 'var(--panel-3)', color: 'var(--muted)' } }, icon('user', 14)),
+      active ? avatar({ name: active.name, iconSrc: active.iconSrc }, 'xs') : h('div', { class: 'avatar xs', style: { background: 'var(--panel-3)', color: 'var(--muted)' } }, icon('user', 14)),
       h('div', { class: 'grow' },
         h('div', { class: 'a-name ellipsis' }, active ? active.name : 'No account'),
         h('div', { class: 'a-sub' }, active ? (active.type === 'msa' ? 'Microsoft' : 'Offline') : 'Click to add one')),
@@ -17,6 +17,8 @@ async function renderAccountChip() {
   } catch { /* ignore */ }
   chip.onclick = () => (closeAccountMenu() ? null : openAccountMenu(chip));
 }
+
+on('accounts:changed', () => renderAccountChip());
 
 let accountMenu = null;
 
@@ -50,7 +52,7 @@ async function openAccountMenu(chip) {
         closeAccountMenu({ refocus: true });
         if (!a.active) { try { await call('accounts:setActive', a.id); } catch (e) { toast(e.message, 'error'); } renderAccountChip(); }
       },
-    }, avatar({ name: a.name }, 'xs'),
+    }, avatar({ name: a.name, iconSrc: a.iconSrc }, 'xs'),
     h('div', { class: 'grow' },
       h('div', { class: 'a-name ellipsis' }, a.name),
       h('div', { class: 'a-sub' }, a.needsRelogin ? 'Microsoft · sign in again' : (a.type === 'msa' ? 'Microsoft' : 'Offline'))),

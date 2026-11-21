@@ -6,7 +6,7 @@ const fs = require('fs');
 const path = require('path');
 const AdmZip = require('adm-zip');
 
-const { makeCtx, sha1, sha512, fabricJar, forgeJar, tmpDir } = require('./helpers');
+const { makeCtx, sha1, sha512, fabricJar, forgeJar, tmpDir, demoSkin } = require('./helpers');
 const { Instances } = require('../src/core/instances');
 const { createSources } = require('../src/core/sources');
 const { ContentManager } = require('../src/core/content/manager');
@@ -438,7 +438,8 @@ test('Microsoft device-code sign-in, token refresh, and offline unlock', async (
     ['POST', 'https://user.auth.xboxlive.com/user/authenticate', () => ({ json: { Token: 'xbl' } })],
     ['POST', 'https://xsts.auth.xboxlive.com/xsts/authorize', () => ({ json: { Token: 'xsts', DisplayClaims: { xui: [{ uhs: 'uhs1' }] } } })],
     ['POST', 'https://api.minecraftservices.com/authentication/login_with_xbox', () => { mcCalls++; return { json: { access_token: jwt, expires_in: mcCalls === 1 ? 1 : 86400 } }; }],
-    ['GET', 'https://api.minecraftservices.com/minecraft/profile', () => ({ json: { id: 'abc123', name: 'DanielMC' } })],
+    ['GET', 'https://api.minecraftservices.com/minecraft/profile', () => ({ json: { id: 'abc123', name: 'DanielMC', skins: [{ state: 'ACTIVE', url: 'https://textures.minecraft.net/texture/abc' }] } })],
+    ['GET', 'https://textures.minecraft.net/texture/abc', () => ({ body: demoSkin() })],
   ];
   const ctx = await makeCtx(routes);
   await ctx.settings.update({ msClientId: 'client-id' });
@@ -451,6 +452,8 @@ test('Microsoft device-code sign-in, token refresh, and offline unlock', async (
   assert.equal(acc.name, 'DanielMC');
   const stored = fs.readFileSync(ctx.paths.accountsFile, 'utf8');
   assert.ok(!stored.includes('ms-rt'), 'refresh token not stored in plain text');
+  assert.ok(fs.existsSync(accounts.skinFile(acc.id)), 'skin downloaded from Mojang\'s texture server');
+  assert.ok(accounts.list()[0].skinAt > 0);
   // Token expired (expires_in: 1) -> refresh happens on launch.
   const creds = await accounts.launchCredentials();
   assert.equal(creds.name, 'DanielMC');
@@ -459,6 +462,40 @@ test('Microsoft device-code sign-in, token refresh, and offline unlock', async (
   assert.equal(accounts.canAddOffline(), true);
   await accounts.addOffline('Steve');
   assert.equal((await accounts.launchCredentials()).offline, true);
+});
+
+test('skin heads: only Mojang texture URLs, face + hat cropped, a failed download keeps the letter', async () => {
+  const { skinUrlOf, downloadSkin, composeHead } = require('../src/core/skin');
+  assert.equal(skinUrlOf({ skins: [{ state: 'INACTIVE', url: 'https://textures.minecraft.net/texture/a' }, { state: 'ACTIVE', url: 'https://textures.minecraft.net/texture/b' }] }), 'https://textures.minecraft.net/texture/b');
+  assert.equal(skinUrlOf({ skins: [{ state: 'ACTIVE', url: 'https://evil.example/texture/b' }] }), null);
+  assert.equal(skinUrlOf({ skins: [{ state: 'ACTIVE', url: 'http://textures.minecraft.net/texture/b' }] }), null);
+  assert.equal(skinUrlOf({}), null);
+  const ctx = await makeCtx([
+    ['GET', 'https://textures.minecraft.net/texture/good', () => ({ body: demoSkin() })],
+    ['GET', 'https://textures.minecraft.net/texture/junk', () => ({ body: 'not a png' })],
+  ]);
+  const dest = path.join(ctx.paths.skins, 'x.png');
+  await assert.rejects(downloadSkin(ctx, 'https://evil.example/texture/good', dest));
+  await assert.rejects(downloadSkin(ctx, 'https://textures.minecraft.net/texture/junk', dest));
+  await assert.rejects(downloadSkin(ctx, 'https://textures.minecraft.net/texture/missing', dest));
+  assert.ok(!fs.existsSync(dest));
+  await downloadSkin(ctx, 'https://textures.minecraft.net/texture/good', dest);
+  assert.ok(fs.existsSync(dest));
+  // Crop: 64x64 RGBA with a red face pixel at (8,8) and a half-opaque blue hat pixel over (9,8).
+  const px = Buffer.alloc(64 * 64 * 4);
+  const put = (x, y, c) => px.set(c, (y * 64 + x) * 4);
+  for (let y = 8; y < 16; y++) for (let x = 8; x < 16; x++) put(x, y, [255, 0, 0, 255]);
+  put(41, 8, [0, 0, 255, 255]);
+  const head = composeHead(px, 64, 64, 2);
+  assert.equal(head.length, 16 * 16 * 4);
+  assert.deepEqual([...head.subarray(0, 4)], [255, 0, 0, 255]);
+  assert.deepEqual([...head.subarray(2 * 4, 2 * 4 + 4)], [0, 0, 255, 255], 'opaque hat pixel covers the face');
+  assert.throws(() => composeHead(Buffer.alloc(16), 2, 2));
+  // A failed skin download never fails sign-in or launch.
+  const accounts = await new Accounts(ctx).load();
+  const acc = { id: 'msa-z', type: 'msa', name: 'Z' };
+  await accounts.saveSkin(acc, { skins: [{ state: 'ACTIVE', url: 'https://textures.minecraft.net/texture/gone' }] });
+  assert.equal(acc.skinAt, undefined);
 });
 
 test('Microsoft sign-in explains when Mojang has not approved the app', async () => {
