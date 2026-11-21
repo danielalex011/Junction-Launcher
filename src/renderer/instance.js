@@ -45,7 +45,7 @@ async function renderInstance({ id, tab = 'mod' }, token) {
   }, icon(t.icon), t.label)));
   const back = h('button', { class: 'btn ghost sm', type: 'button', onclick: () => go('library'), style: { marginBottom: '12px' } }, icon('arrowLeft'), 'Library');
   const failedSlot = h('div');
-  view().replaceChildren(h('div', { class: 'page' }, back, head, failedSlot, tabBar, content));
+  view().replaceChildren(h('div', { class: 'page', style: { maxWidth: '1600px' } }, back, head, failedSlot, tabBar, content));
   call('content:failed', id).then((list) => {
     if (!stale(token) && list?.length) failedSlot.replaceChildren(failedNotice(inst, list, () => go('instance', state.params)));
   }).catch(() => {});

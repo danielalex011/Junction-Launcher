@@ -445,6 +445,8 @@ function createWindow() {
     // Used by the automated UI smoke test.
     win.webContents.once('did-finish-load', () => {
       setTimeout(async () => {
+        const size = /^(\d+)x(\d+)$/.exec(process.env.JUNCTION_SCREENSHOT_SIZE || '');
+        if (size) { win.setMinimumSize(100, 100); win.setContentSize(Number(size[1]), Number(size[2])); await new Promise((r) => setTimeout(r, 600)); }
         if (process.env.JUNCTION_SCREENSHOT_JS) {
           await win.webContents.executeJavaScript(process.env.JUNCTION_SCREENSHOT_JS).catch((e) => console.error(e));
           await new Promise((r) => setTimeout(r, Number(process.env.JUNCTION_SCREENSHOT_WAIT || 1500)));

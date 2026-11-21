@@ -103,7 +103,7 @@ a { color: var(--accent); }
 
 /* ---------- main ---------- */
 #view { overflow: auto; min-width: 0; position: relative; }
-.page { padding: 26px 32px 48px; max-width: 1400px; }
+.page { padding: 26px 32px 48px; max-width: var(--browse-w, 1760px); margin: 0 auto; }
 .page-head { display: flex; align-items: center; gap: 12px; margin-bottom: 20px; flex-wrap: wrap; }
 .page-head h1 { font-size: 24px; margin: 0; font-weight: 700; flex: 1; }
 .muted { color: var(--muted); }
@@ -227,8 +227,10 @@ details.adv > summary:hover { color: var(--text); }
 .hint { color: var(--faint); font-size: 12px; font-weight: 400; line-height: 1.45; }
 
 /* ---------- browse ---------- */
-.browse-top { position: sticky; top: 0; z-index: 3; background: var(--bg); padding: 22px 32px 12px; border-bottom: 1px solid var(--border); }
-.browse-body { padding: 16px 32px 40px; max-width: 1400px; }
+/* Search bar, filters and results share one centred column (--browse-w) so their edges always line up. */
+#view { --browse-w: 1760px; }
+.browse-top { position: sticky; top: 0; z-index: 3; background: var(--bg); padding: 22px max(32px, calc((100% - var(--browse-w)) / 2 + 32px)) 12px; border-bottom: 1px solid var(--border); }
+.browse-body { padding: 16px max(32px, calc((100% - var(--browse-w)) / 2 + 32px)) 40px; }
 .search { display: flex; align-items: center; gap: 8px; background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius); padding: 0 12px; flex: 1; min-width: 240px; }
 .search input { border: 0; background: none; padding: 11px 0; flex: 1; outline: none; font-size: 15px; }
 .filters { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-top: 12px; }
@@ -239,6 +241,12 @@ details.adv > summary:hover { color: var(--text); }
 .results { display: flex; flex-direction: column; gap: 10px; }
 .result { display: grid; grid-template-columns: 64px 1fr auto; gap: 14px; background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius); padding: 14px; cursor: pointer; align-items: center; }
 .result:hover { border-color: #3a4252; }
+/* Wide windows (content area over ~1600px: window over ~1820px with the sidebar): results become a grid of cards */
+@media (min-width: 1820px) {
+  #view { --browse-w: 2400px; }
+  .results { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+}
+@media (min-width: 2420px) { .results { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
 .result .avatar { width: 64px; height: 64px; }
 .result .r-title { font-weight: 700; font-size: 15px; }
 .result .r-author { color: var(--muted); font-weight: 400; font-size: 13px; }
