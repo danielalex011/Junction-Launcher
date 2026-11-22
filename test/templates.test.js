@@ -427,3 +427,38 @@ test('add a template to an existing instance that is not a modpack: same review,
   const dup = plan.items.find((i) => i.title === 'Dup Mod');
   assert.deepEqual([dup.status, dup.have, dup.reason], ['have', 'instance', 'Already installed']);
 });
+
+test('backfill: an older pack instance gets the one template that covers its added items; no match and ambiguous are left alone', async () => {
+  const { templates, instances, t, pack } = await packSetup();
+  const added = async (id, ids, extra = {}) => instances.withIndex(id, (idx) => {
+    for (const [k, v] of Object.entries(idx.files)) if (!v.fromPack) delete idx.files[k]; // start from the pack's own files only
+    ids.forEach((p, i) => { idx.files[`mods/x${i}.jar`] = { source: 'modrinth', projectId: p, title: p, ...extra }; });
+  });
+  // Favourites has ALP BET SOD DUP TWN PRV MINE MID. 5 of 5 covered -> match.
+  await added(pack.id, ['ALP', 'BET', 'SOD', 'TWN', 'PRV']);
+  assert.deepEqual(await templates.backfillInstances(), [{ instance: 'Big Pack', template: 'Favourites' }]);
+  assert.deepEqual((await instances.get(pack.id)).template, { id: t.id, name: 'Favourites' });
+  assert.deepEqual(await templates.backfillInstances(), [], 'an instance that has a template is skipped the next time');
+
+  const make = async (name, ids) => {
+    const i = await instances.create({ name, mcVersion: '1.21', loader: { type: 'neoforge', version: '21.0.1' } });
+    await instances.update(i.id, { pack: { source: 'modrinth', projectId: 'PACKP', name, versionId: 'pv1', versionName: '1.0' } });
+    await added(i.id, ids);
+    return i;
+  };
+  // no match: only 2 of 6 are in the template; too few added: 4 items; not a linked pack: plain instance
+  const none = await make('No match', ['ALP', 'BET', 'Z1', 'Z2', 'Z3', 'Z4']);
+  const few = await make('Too few', ['ALP', 'BET', 'SOD', 'TWN']);
+  const plain = await instances.create({ name: 'Plain', mcVersion: '1.21', loader: { type: 'fabric', version: '0.16.0' } });
+  await added(plain.id, ['ALP', 'BET', 'SOD', 'TWN', 'PRV']);
+  assert.deepEqual(await templates.backfillInstances(), []);
+  for (const i of [none, few, plain]) assert.equal((await instances.get(i.id)).template, undefined);
+
+  // ambiguous: a second template that covers the same items equally well -> no guess
+  const twinDir = path.join(templates.dir, 'twin');
+  await fs.promises.mkdir(twinDir, { recursive: true });
+  await fs.promises.writeFile(path.join(twinDir, 'template.json'), JSON.stringify({ id: 'twin', name: 'Twin', content: { mod: ['ALP', 'BET', 'SOD', 'TWN', 'PRV'].map((p) => ({ source: 'modrinth', projectId: p })) } }));
+  const amb = await make('Ambiguous', ['ALP', 'BET', 'SOD', 'TWN', 'PRV']);
+  assert.deepEqual(await templates.backfillInstances(), []);
+  assert.equal((await instances.get(amb.id)).template, undefined);
+});

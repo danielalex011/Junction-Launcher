@@ -44,6 +44,7 @@ const ICONS = {
   pack: '<path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22" x2="12" y2="12"/>',
   edit: '<path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/>',
   shirt: '<path d="M20.38 3.46L16 2a4 4 0 0 1-8 0L3.62 3.46a2 2 0 0 0-1.34 2.23l.58 3.47a1 1 0 0 0 .99.84H6v10c0 1.1.9 2 2 2h8a2 2 0 0 0 2-2V10h2.15a1 1 0 0 0 .99-.84l.58-3.47a2 2 0 0 0-1.34-2.23z"/>',
+  layers: '<rect x="8" y="8" width="13" height="13" rx="2"/><path d="M16 8V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h3"/>',
   file: '<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/>',
 };
 
@@ -136,12 +137,28 @@ function avatar(item, size = '') {
   return h('div', { class: `avatar ${size}`, style: { background: hashColor(label) } }, label[0]?.toUpperCase() || '?');
 }
 
-/** "+ N added" next to the source chip: what the user added on top of a modpack. Nothing when there is none. The tooltip names the template it came from, if any. */
+/** A linked modpack that was also given a template ("Modpack + template"). Plain packs with a few hand-added mods are not. */
+function isCombined(inst) { return Boolean(inst?.linked && inst?.template?.name); }
+
+/** The instance picture; for a combined instance with a small round "layers" badge on its bottom-right corner (the shape says it, not just the colour). */
+function instAvatar(inst, size = '') {
+  const av = avatar(inst, size);
+  if (!isCombined(inst)) return av;
+  const tip = `Modpack + template: ${inst.template.name}`;
+  return h('span', { class: 'av-wrap' }, av, h('span', { class: 'av-badge', title: tip, role: 'img', 'aria-label': tip }, icon('layers', 11)));
+}
+
+/**
+ * Next to the source chip: a violet "Pack + template" chip for a combined instance, otherwise the quiet grey "+ N added" chip
+ * (what the user added on top of a modpack). Nothing when there is nothing to say. The tooltip names the template, if any.
+ */
 function addedBadge(inst, count) {
   const n = Number(count) || 0;
-  if (n < 1) return null;
   const tpl = inst?.template?.name;
-  return h('span', { class: 'badge plain', title: `${tpl ? `Template: ${tpl} · ` : ''}${n} ${n === 1 ? 'item' : 'items'} added by you` }, `+ ${n} added`);
+  const items = `${n} ${n === 1 ? 'item' : 'items'} added by you`;
+  if (isCombined(inst)) return h('span', { class: 'badge combo plain', title: `Template: ${tpl}${n > 0 ? ` · ${items}` : ''}` }, icon('layers', 12), 'Pack + template');
+  if (n < 1) return null;
+  return h('span', { class: 'badge plain', title: `${tpl ? `Template: ${tpl} · ` : ''}${items}` }, `+ ${n} added`);
 }
 
 function sourceBadge(source, url) {

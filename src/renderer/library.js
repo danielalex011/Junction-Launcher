@@ -20,18 +20,23 @@ async function renderLibrary(_p, token) {
         h('button', { class: 'btn lg', type: 'button', onclick: () => go('browse', { type: 'modpack' }) }, icon('box'), 'Browse modpacks'),
         h('button', { class: 'btn lg', type: 'button', onclick: () => importFromLaunchers() }, icon('login'), 'Import from another launcher')));
   } else {
-    body = h('div', { class: 'grid' }, list.map((inst) => h('div', { class: 'card', onclick: () => go('instance', { id: inst.id }) },
-      h('div', { class: 'c-top' }, avatar(inst),
-        h('div', { class: 'grow' },
-          h('div', { class: 'c-name', title: inst.name }, inst.name),
-          h('div', { class: 'c-sub', title: instSubtitle(inst) }, instSubtitle(inst)))),
-      h('div', { class: 'c-foot' },
-        h('span', { class: 'row' }, state.running.get(inst.id) === 'running' ? h('span', { class: 'state-dot' }) : null,
-          updateBadge(inst.id, badges[inst.id]),
-          inst.pack ? sourceBadge(inst.pack.source === 'file' ? 'file' : inst.pack.source) : null,
-          addedBadge(inst, added[inst.id]),
-          h('span', { class: 'ellipsis', title: inst.lastPlayed ? `Last played ${ago(inst.lastPlayed)}` : '' }, inst.lastPlayed ? agoShort(inst.lastPlayed) : 'Never played')),
-        playButton(inst, 'sm')))));
+    body = h('div', { class: 'grid' }, list.map((inst) => {
+      const chips = [updateBadge(inst.id, badges[inst.id]), inst.pack ? sourceBadge(inst.pack.source === 'file' ? 'file' : inst.pack.source) : null, addedBadge(inst, added[inst.id])].filter(Boolean);
+      const played = inst.lastPlayed ? agoShort(inst.lastPlayed) : 'Never played';
+      const playedTip = inst.lastPlayed ? `Last played ${ago(inst.lastPlayed)}` : '';
+      const crowded = chips.length >= 2; // with several chips the played text moves up under the name, so nothing in the footer is cut off
+      const sub = crowded ? `${instSubtitle(inst)} · ${played}` : instSubtitle(inst);
+      return h('div', { class: `card${isCombined(inst) ? ' combined' : ''}`, onclick: () => go('instance', { id: inst.id }) },
+        h('div', { class: 'c-top' }, instAvatar(inst),
+          h('div', { class: 'grow' },
+            h('div', { class: 'c-name', title: inst.name }, inst.name),
+            h('div', { class: 'c-sub', title: playedTip && crowded ? `${sub} (${playedTip})` : sub }, sub))),
+        h('div', { class: 'c-foot' },
+          h('span', { class: 'row chips' }, state.running.get(inst.id) === 'running' ? h('span', { class: 'state-dot' }) : null,
+            ...chips,
+            crowded ? null : h('span', { class: 'ellipsis', title: playedTip }, played)),
+          playButton(inst, 'sm')));
+    }));
   }
   view().replaceChildren(h('div', { class: 'page page-full' }, head, body));
 }

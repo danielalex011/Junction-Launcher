@@ -56,13 +56,13 @@ function updateBadge(instanceId, info) {
 /** A compact instance card for the sideways row (also what the Library grid uses, with `badge` from the cache). */
 function instanceCard(inst, badge) {
   const open = () => go('instance', { id: inst.id });
-  return h('div', { class: 'card srow-card inst-card', tabindex: 0, role: 'link', title: instSubtitle(inst), onclick: open,
+  return h('div', { class: `card srow-card inst-card${isCombined(inst) ? ' combined' : ''}`, tabindex: 0, role: 'link', title: instSubtitle(inst), onclick: open,
     onkeydown: (e) => { if (e.key === 'Enter' && e.target === e.currentTarget) open(); } },
-  h('div', { class: 'c-top' }, avatar(inst),
+  h('div', { class: 'c-top' }, instAvatar(inst),
     h('div', { class: 'grow' },
       h('div', { class: 'c-name', title: inst.name }, inst.name),
       h('div', { class: 'c-sub ellipsis' }, `${LOADER[(inst.loader || {}).type] || 'Vanilla'} · ${inst.mcVersion}`))),
-  h('div', { class: 'c-foot' }, h('span', { class: 'row' }, badge, inst.pack ? sourceBadge(inst.pack.source === 'file' ? 'file' : inst.pack.source) : null, addedBadge(inst, inst.addedCount)), playButton(inst, 'sm')));
+  h('div', { class: 'c-foot' }, h('span', { class: 'row chips' }, badge, inst.pack ? sourceBadge(inst.pack.source === 'file' ? 'file' : inst.pack.source) : null, addedBadge(inst, inst.addedCount)), playButton(inst, 'sm')));
 }
 
 // ---------------------------------------------------------------- Minecraft news

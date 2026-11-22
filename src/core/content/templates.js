@@ -80,6 +80,35 @@ class Templates {
     return j;
   }
 
+  /**
+   * One-time catch-up for instances made before an instance remembered its template: a linked modpack with no stored template
+   * and at least `minAdded` "Added by you" items gets the saved template whose projects cover at least `minCover` of those items.
+   * Two templates that both reach that (or none) means no guess: the instance is left alone. Existing templates are never overwritten.
+   * Items without a Modrinth/CurseForge project (local files) count as not covered. Returns [{ instance, template }] (names only).
+   */
+  async backfillInstances({ minAdded = 5, minCover = 0.8 } = {}) {
+    const sets = [];
+    for (const e of await fsp.readdir(this.dir, { withFileTypes: true }).catch(() => [])) {
+      if (!e.isDirectory()) continue;
+      const t = await readJson(path.join(this.dir, e.name, 'template.json'), null);
+      if (!t?.id) continue;
+      sets.push({ id: t.id, name: t.name, keys: new Set(TYPES.flatMap((ty) => (t.content?.[ty] || []).map((c) => `${c.source}:${c.projectId}`))) });
+    }
+    const done = [];
+    if (!sets.length) return done;
+    for (const inst of await this.instances.list()) {
+      if (!isLinkedPack(inst) || inst.template) continue;
+      const idx = await this.instances.readIndex(inst.id).catch(() => null);
+      const added = Object.entries(idx?.files || {}).filter(([rel, f]) => !f.fromPack && /^(mods|resourcepacks|shaderpacks)\//.test(rel));
+      if (added.length < minAdded) continue;
+      const fits = sets.filter((s) => added.filter(([, f]) => f.projectId != null && s.keys.has(`${f.source}:${f.projectId}`)).length / added.length >= minCover);
+      if (fits.length !== 1) continue; // none, or ambiguous
+      await this.instances.update(inst.id, { template: { id: fits[0].id, name: fits[0].name } });
+      done.push({ instance: inst.name, template: fits[0].name });
+    }
+    return done;
+  }
+
   summary(t) {
     const count = (type) => (t.content?.[type] || []).length;
     return {

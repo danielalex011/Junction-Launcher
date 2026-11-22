@@ -815,6 +815,8 @@ app.whenReady().then(async () => {
   modpacks = new Modpacks(ctx, instances, content, sources);
   packlink = new PackLink(ctx, instances, content, modpacks, sources);
   home = new Home(ctx, instances, content, sources, packlink);
+  // One-time catch-up for older "modpack + template" instances; runs again harmlessly (instances that have a template are skipped). Names only in the log.
+  templates.backfillInstances().then((done) => { if (done.length) console.log(`Template backfill: ${done.length} instance(s): ${done.map((d) => `${d.instance} -> ${d.template}`).join('; ')}`); }).catch(() => {});
   news = new News(ctx);
   ctx.tasks.on('update', (t) => {
     send('task:update', t);
