@@ -93,7 +93,7 @@ class Instances {
 
   async update(id, patch) {
     const inst = await this.get(id);
-    const allowed = ['name', 'mcVersion', 'loader', 'icon', 'pack', 'lastPlayed', 'playtimeMs', 'memoryMax', 'memoryMin', 'jvmArgs', 'javaPath', 'resolution', 'joinServer', 'notes', 'importedFrom', 'originalIcon', 'iconVersion', 'unlinkedPack'];
+    const allowed = ['name', 'mcVersion', 'loader', 'icon', 'pack', 'lastPlayed', 'playtimeMs', 'memoryMax', 'memoryMin', 'memoryMode', 'memoryWarnOff', 'jvmArgs', 'javaPath', 'resolution', 'joinServer', 'notes', 'importedFrom', 'originalIcon', 'iconVersion', 'unlinkedPack'];
     for (const k of allowed) if (k in patch) inst[k] = patch[k];
     await writeJson(path.join(this.instDir(id), 'instance.json'), inst);
     return inst;

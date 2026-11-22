@@ -264,8 +264,34 @@ on('task:update', (t) => {
 on('task:history', (list) => { activityUi.history = list; renderHistory(); renderActivity(); });
 
 // ---------------------------------------------------------------- launching
+/** Before launch: if the memory is outside the pack's own range, ask what to do. Resolves true to go on launching. */
+async function memoryRangeCheck(inst) {
+  const r = await call('inst:memoryCheck', inst.id).catch(() => null);
+  if (!r?.check) return true;
+  const c = r.check;
+  const G = JunctionMemory.gbText;
+  const text = c.problem === 'high'
+    ? `${inst.name} is set to ${G(c.mb)}, but ${r.packName} allows at most ${G(c.limitMB)}. The game would show its own warning screen.`
+    : `${inst.name} is set to ${G(c.mb)}, but ${r.packName} needs at least ${G(c.limitMB)}. The game would show its own warning screen.`;
+  return new Promise((resolve) => {
+    let answered = false;
+    const done = (v) => { answered = true; resolve(v); };
+    modal({
+      title: 'Memory outside the pack’s range',
+      body: h('p', { style: { margin: 0, lineHeight: 1.5 } }, text),
+      actions: [
+        { label: "Don't ask again for this instance", class: 'ghost', onClick: async () => { await call('inst:update', inst.id, { memoryWarnOff: true }); done(true); } },
+        { label: 'Launch anyway', onClick: () => done(true) },
+        { label: `Use recommended (${G(c.recommendedMB)})`, class: 'primary', onClick: async () => { await call('inst:update', inst.id, { memoryMode: 'recommended' }); done(true); } },
+      ],
+      onClose: () => { if (!answered) resolve(false); },
+    });
+  });
+}
+
 async function play(inst) {
   try {
+    if (!(await memoryRangeCheck(inst))) return;
     await call('inst:launch', inst.id);
   } catch (e) {
     if (e.code === 'NO_ACCOUNT') {

@@ -30,7 +30,8 @@ const { shortId, sniffImage } = require('../core/util');
 const { loadBuildConfig } = require('../core/build-config');
 const { HttpError, describeError } = require('../core/http');
 const { findJavas, testJava } = require('../core/javafinder');
-const { runtimeRows, downloadRuntime, removeRuntime } = require('../core/minecraft/javainfo');
+const { runtimeRows, downloadRuntime, removeRuntime, majorForInstance } = require('../core/minecraft/javainfo');
+const memrec = require('../core/memrec');
 const { cacheInfo, clearCache } = require('../core/storage');
 const { diskSpace, checkSpace, MIN_FREE_BYTES, MIN_FREE_PERCENT } = require('../core/space');
 const { inspectSource, planCopy, copyFrom, compareWorld } = require('../core/content/worldcopy');
@@ -199,9 +200,46 @@ function registerIpc() {
     const r = running.get(id);
     if (r?.child) r.child.kill();
   });
+  // --- memory recommendations (per instance), the pre-launch range check and the Java version presets need
+  const memoryInfo = async (inst) => {
+    const gameDir = instances.gameDir(inst.id);
+    const count = async (dir, re) => (await fs.promises.readdir(path.join(gameDir, dir)).catch(() => [])).filter((n) => re.test(n)).length;
+    let rec = null; // a failing recommendation must never break a page or a launch: "No recommendation" instead
+    try {
+      const pack = await memrec.readPackMemory(gameDir, inst);
+      const totalMB = Math.floor(os.totalmem() / 1024 / 1024);
+      rec = memrec.recommend({ pack, mods: await count('mods', /\.jar$/i), shaders: await count('shaderpacks', /./), resourcePacks: await count('resourcepacks', /./), totalMB, name: inst.pack?.name || inst.name });
+    } catch (e) { console.error('memory recommendation failed:', e.message); }
+    const defaultMB = ctx.settings.get('memoryMax');
+    const mode = memrec.memoryMode(inst);
+    return { rec, mode, defaultMB, effectiveMB: memrec.effectiveMB(inst, rec, defaultMB) };
+  };
+  handle('inst:memoryInfo', async (id) => memoryInfo(await instances.get(id)));
+  handle('inst:memoryInfoAll', async () => {
+    const out = {};
+    for (const inst of await instances.list()) out[inst.id] = await memoryInfo(inst).catch(() => null);
+    return out;
+  });
+  handle('inst:memoryCheck', async (id) => {
+    const inst = await instances.get(id);
+    const info = await memoryInfo(inst);
+    return { check: memrec.checkAllocation(inst, info.rec, info.defaultMB), name: inst.name, packName: inst.pack?.name || inst.name };
+  });
+  const javaMajorOf = async (inst) => {
+    if (inst.javaPath) {
+      const r = await testJava(inst.javaPath).catch(() => null);
+      if (r?.ok && r.major) return { major: r.major, own: true };
+    }
+    return { major: await majorForInstance(ctx, inst), own: false };
+  };
+  handle('inst:javaMajor', async (id) => javaMajorOf(await instances.get(id)));
+  handle('inst:presets', async (id) => { const j = await javaMajorOf(await instances.get(id)); return { major: j.major, presets: memrec.presetsFor(j.major) }; });
+  handle('inst:checkPreset', async (id, presetId) => memrec.checkPreset(String(presetId), (await javaMajorOf(await instances.get(id))).major));
+
   handle('inst:launch', async (id) => {
     if (running.has(id)) throw new Error('This instance is already running.');
-    const inst = await instances.get(id);
+    const stored = await instances.get(id);
+    const inst = { ...stored, memoryMax: (await memoryInfo(stored).catch(() => null))?.effectiveMB || stored.memoryMax };
     const entry = { state: 'preparing', log: [], child: null, windowMode: 'keep' };
     running.set(id, entry);
     send('inst:state', { id, state: 'preparing' });

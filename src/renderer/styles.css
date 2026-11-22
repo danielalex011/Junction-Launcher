@@ -665,6 +665,11 @@ details.adv > summary { cursor: pointer; color: var(--muted); font-weight: 600; 
 .mem-presets { margin-top: 14px; }
 .mem-preset[aria-pressed="true"] { border-color: var(--accent); color: var(--accent); }
 .mem-preset-gb { color: var(--faint); font-weight: 400; }
+.item.mem-rec-row { grid-template-columns: minmax(0, 1.4fr) 110px 70px minmax(0, 2fr); gap: 12px; font-size: 13px; align-items: center; }
+.item.mem-rec-head { color: var(--faint); font-size: 12px; }
+.item.mem-rec-row > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mem-modes { margin-bottom: 10px; }
+.mem-rec { margin-bottom: 12px; font-size: 13px; display: grid; gap: 4px; }
 .item.mem-inst { grid-template-columns: minmax(0, 1fr) auto auto; }
 .item.java-row { grid-template-columns: minmax(0, 1fr) auto; }
 .java-path { font-family: ui-monospace, Consolas, monospace; }

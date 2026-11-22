@@ -81,3 +81,10 @@ test('the template review ignores clicks on the backdrop; a link to a deleted in
   assert.match(read('templates.js'), /backdropClose: false/);
   assert.match(read('instance.js'), /Instance not found[\s\S]{0,80}go\('library'\)/);
 });
+
+test('every renderer script is valid JavaScript (a syntax error leaves every page empty)', () => {
+  const vm = require('node:vm');
+  for (const f of scripts) {
+    assert.doesNotThrow(() => new vm.Script(read(f), { filename: f }), `${f} does not parse`);
+  }
+});

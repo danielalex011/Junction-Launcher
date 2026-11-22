@@ -18,6 +18,7 @@ const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'junction-uicheck-'));
 const data = path.join(tmp, 'data');
 if (arg === '--demo') execFileSync(process.execPath, [path.join(__dirname, 'seed-demo.js'), data], { stdio: 'ignore' });
 else fs.cpSync(arg, data, { recursive: true, filter: (s) => !/[\/](runtimes|cache|libraries|assets|versions)$/.test(s) && !/[\/]instances[\/][^\/]+[\/](saves|.minecraft)$/.test(s) });
+const startedAt = Date.now();
 const port = 9300 + Math.floor(Math.random() * 500);
 const electron = require('electron');
 const child = spawn(electron, [root, `--remote-debugging-port=${port}`, `--user-data-dir=${path.join(tmp, 'ud')}`], {
@@ -58,6 +59,10 @@ async function connect() {
   };
   await send('Runtime.enable');
   await sleep(3000); // let init() finish
+  // Errors thrown while the scripts load happen before Runtime.enable above, so check that the main globals exist.
+  for (const g of ['go', 'renderSettings', 'initActivity', 'renderLibrary', 'renderInstSettings', 'memoryControl', 'play']) {
+    if ((await run(`typeof ${g}`)) !== 'function') failures.push(`Renderer load error: ${g} is not defined (a script failed to load).`);
+  }
 
   const instId = await run('call("inst:list").then((l) => l[0]?.id || null)');
   const tabs = ['general', 'appearance', 'memory', 'java', 'storage', 'about'];
@@ -99,7 +104,12 @@ async function connect() {
   child.kill();
   for (const e of errors) failures.push(`Window error: ${e}`);
   const log = path.join(data, 'logs', 'window-errors.log');
-  if (fs.existsSync(log)) console.log(`\nWindow error log:\n${fs.readFileSync(log, 'utf8')}`);
+  if (fs.existsSync(log)) {
+    // Only lines written during this run (the copied data folder brings old ones). Any [window] error or [load] failure fails the check.
+    const fresh = fs.readFileSync(log, 'utf8').split('\n').filter((l) => l && Date.parse(l.slice(0, 24)) >= startedAt - 1000);
+    if (fresh.length) console.log(`\nWindow error log:\n${fresh.join('\n')}`);
+    for (const l of fresh) failures.push(`Logged: ${l.slice(0, 220)}`);
+  }
   try { fs.rmSync(tmp, { recursive: true, force: true }); } catch { /* still closing */ }
   if (failures.length) { console.error(`\nFAILED:\n- ${failures.join('\n- ')}`); process.exit(1); }
   console.log('\nOK: the account menus open from every page, no window errors.');

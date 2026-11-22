@@ -341,7 +341,7 @@ class Modpacks {
     }
     const inst = await this.createOrReuse(instanceId, {
       name: name || manifest.name, mcVersion: mc, loader, icon,
-      pack: pack || { source: 'file', name: manifest.name, versionName: manifest.version },
+      pack: { ...(pack || { source: 'file', name: manifest.name, versionName: manifest.version }), ...(Number(manifest.recommendedRam) > 0 ? { recommendedRamMB: Math.round(Number(manifest.recommendedRam)) } : {}) },
     });
     const gameDir = this.instances.gameDir(inst.id);
     const { jobs, blocked, warnings } = await this.resolveCurseForge(manifest, gameDir, report);

@@ -134,11 +134,6 @@ async function renderLogsTab(inst, root) {
 }
 
 // ----- instance settings tab
-const JVM_PRESETS = [
-  { label: 'Generational ZGC', args: '-XX:+UseZGC -XX:+ZGenerational', hint: 'Low pause times for big packs. Java 21+ (on 23+ ZGC is generational by default).' },
-  { label: 'Tuned G1', args: '-XX:+UseG1GC -XX:+ParallelRefProcEnabled -XX:MaxGCPauseMillis=200 -XX:+UnlockExperimentalVMOptions -XX:+DisableExplicitGC -XX:+AlwaysPreTouch -XX:G1NewSizePercent=30 -XX:G1MaxNewSizePercent=40 -XX:G1HeapRegionSize=8M -XX:G1ReservePercent=20 -XX:G1HeapWastePercent=5 -XX:G1MixedGCCountTarget=4 -XX:InitiatingHeapOccupancyPercent=15 -XX:G1MixedGCLiveThresholdPercent=90 -XX:G1RSetUpdatingPauseTimePercent=5 -XX:SurvivorRatio=32 -XX:+PerfDisableSharedMem -XX:MaxTenuringThreshold=1', hint: 'Well-known G1 flags for modded play.' },
-];
-
 async function renderInstSettings(inst, root) {
   const s = state.settings || (state.settings = await call('settings:get'));
   const versions = await loadMcVersions(true);
@@ -146,13 +141,35 @@ async function renderInstSettings(inst, root) {
     name: h('input', { type: 'text', value: inst.name }),
     memMin: h('input', { type: 'number', min: 256, step: 256, value: inst.memoryMin || '', placeholder: `${s.memoryMin} (default)` }),
     jvm: h('textarea', { rows: 3, placeholder: 'Extra JVM arguments, e.g. -XX:+UseZGC', value: inst.jvmArgs || '' }),
-    java: h('input', { type: 'text', value: inst.javaPath || '', placeholder: 'Automatic (Mojang runtime for this version)' }),
+    java: h('input', { type: 'text', value: inst.javaPath || '', placeholder: 'Automatic (Java …)', title: 'Leave empty to use the automatic Java' }),
     width: h('input', { type: 'number', min: 0, value: inst.resolution?.width || '', placeholder: 'default' }),
     height: h('input', { type: 'number', min: 0, value: inst.resolution?.height || '', placeholder: 'default' }),
     server: h('input', { type: 'text', value: inst.joinServer || '', placeholder: 'e.g. play.example.net:25565' }),
   };
-  const memCtl = memoryControl({ totalMB: state.info?.totalMemMB, valueMB: inst.memoryMax || null, defaultMB: s.memoryMax, nullable: true, name: inst.name });
+  const info = await call('inst:memoryInfo', inst.id).catch(() => null);
+  let memMode = info?.mode || (inst.pack ? 'recommended' : 'default');
+  const memCtl = memoryControl({ totalMB: state.info?.totalMemMB, valueMB: inst.memoryMax || info?.effectiveMB || s.memoryMax, defaultMB: s.memoryMax, name: inst.name });
   call('inst:modCounts').then((c) => memCtl.setMods(c[inst.id] ?? null)).catch(() => {});
+  const memModeBox = h('div');
+  const MEM_MODES = [['recommended', 'Recommended'], ['default', 'Global default'], ['custom', 'Custom']];
+  function drawMemMode() {
+    const rec = info?.rec;
+    memCtl.style.display = memMode === 'custom' ? '' : 'none';
+    memModeBox.replaceChildren(
+      h('div', { class: 'row wrap mem-modes', role: 'radiogroup', 'aria-label': 'Memory mode' }, MEM_MODES.map(([v, label]) => h('button', {
+        class: `btn sm${memMode === v ? ' primary' : ''}`, type: 'button', role: 'radio', 'aria-checked': String(memMode === v), onclick: () => { memMode = v; drawMemMode(); },
+      }, label))),
+      memMode === 'recommended' && rec ? h('div', { class: 'mem-rec' },
+        h('div', null, rec.reason),
+        h('div', { class: 'hint' }, rec.label),
+        rec.pcShort ? h('div', { class: 'mem-hint' }, 'This PC has less memory than the pack asks for. It may run badly.') : null,
+        rec.guideUrl ? h('a', { href: rec.guideUrl, onclick: (e) => { e.preventDefault(); call('shell:open', rec.guideUrl).catch(() => {}); } }, "Pack's memory guide") : null) : null,
+      memMode === 'recommended' && !rec ? h('div', { class: 'hint' }, 'No recommendation for this instance. The global default is used.') : null,
+      memMode === 'default' ? h('div', { class: 'hint' }, `Uses the default from Settings (${JunctionMemory.gbText(s.memoryMax)}).`) : null);
+  }
+  drawMemMode();
+  const javaInfo = await call('inst:presets', inst.id).catch(() => ({ major: 0, presets: [] }));
+  if (!inst.javaPath && javaInfo.major) f.java.placeholder = `Automatic (Java ${javaInfo.major})`;
   let mc = inst.mcVersion;
   let loader = inst.loader?.type || 'vanilla';
   let loaderVersion = inst.loader?.version || null;
@@ -178,7 +195,8 @@ async function renderInstSettings(inst, root) {
     await call('inst:update', inst.id, {
       name: f.name.value.trim() || inst.name,
       ...(locked ? {} : { mcVersion: mc, loader: loader === 'vanilla' ? { type: 'vanilla' } : { type: loader, version: loaderVersion } }),
-      memoryMax: memCtl.getValue(),
+      memoryMode: memMode,
+      ...(memMode === 'custom' ? { memoryMax: memCtl.getValue() } : {}),
       memoryMin: Number(f.memMin.value) || null,
       jvmArgs: f.jvm.value.trim(),
       javaPath: f.java.value.trim(),
@@ -200,15 +218,21 @@ async function renderInstSettings(inst, root) {
         locked ? lockedField('Loader version', inst.loader?.version || '—') : h('label', { class: 'field' }, 'Loader version', lvWrap))),
     h('div', { class: 'section' }, h('h3', null, 'Java & memory'),
       h('h4', { class: 'sub' }, 'Maximum memory'),
-      h('p', null, `Move the slider to give this instance its own amount, or use the default from Settings (${JunctionMemory.gbText(s.memoryMax)}). Java is downloaded automatically in the version Minecraft needs.`),
+      h('p', null, 'Pick Recommended to let Junction choose, use the global default from Settings, or set your own amount. Java is downloaded automatically in the version Minecraft needs.'),
+      memModeBox,
       memCtl,
       h('div', { class: 'form-grid', style: { marginTop: '18px' } },
         h('label', { class: 'field' }, 'Minimum memory (MB), advanced', f.memMin),
         h('label', { class: 'field' }, 'Java executable', h('div', { class: 'row' }, f.java, h('button', { class: 'btn', type: 'button', onclick: async () => { const p = await call('dialog:pickJava'); if (p) f.java.value = p; } }, 'Browse')))),
       h('label', { class: 'field', style: { marginTop: '14px' } }, 'JVM arguments', f.jvm),
       h('div', { class: 'row wrap', style: { marginTop: '8px' } }, h('span', { class: 'hint' }, 'Presets:'),
-        JVM_PRESETS.map((p) => h('button', { class: 'btn sm', type: 'button', title: p.hint, onclick: () => { f.jvm.value = p.args; } }, p.label)),
-        h('button', { class: 'btn sm ghost', type: 'button', onclick: () => { f.jvm.value = ''; } }, 'Clear'))),
+        javaInfo.presets.map((p) => h('button', {
+          class: 'btn sm', type: 'button', disabled: !p.ok, title: p.ok ? p.hint : p.reason,
+          onclick: async () => { const c = await call('inst:checkPreset', inst.id, p.id).catch(() => ({ ok: false, reason: 'Could not check the Java version.' })); if (!c.ok) { toast(c.reason, 'error'); return; } f.jvm.value = p.args; },
+        }, p.label)),
+        h('button', { class: 'btn sm ghost', type: 'button', onclick: () => { f.jvm.value = ''; } }, 'Clear')),
+      javaInfo.presets.filter((p) => !p.ok).map((p) => h('div', { class: 'hint' }, `${p.label}: ${p.reason}`)),
+      h('div', { class: 'hint', style: { marginTop: '8px' } }, 'Leave this empty unless a pack asks for something. Copied flag lists are often outdated and can make things worse.')),
     h('div', { class: 'section' }, h('h3', null, 'Game window & server'),
       h('div', { class: 'form-grid' },
         h('label', { class: 'field' }, 'Window width', f.width),

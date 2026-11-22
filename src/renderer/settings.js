@@ -178,11 +178,21 @@ function settingsMemory(s, info, auto) {
 
   let insts = [];
   let counts = {};
+  let infos = {};
+  const MODE_TEXT = { recommended: 'Recommended', default: 'Global default', custom: 'Custom' };
   function drawLists() {
     const dflt = ctl.getValue();
-    const own = insts.filter((i) => i.memoryMax || i.memoryMin);
+    const own = insts.filter((i) => infos[i.id]?.mode === 'custom' || i.memoryMin);
     const hints = insts.map((i) => ({ i, text: M.bigPackHint({ name: i.name, mods: counts[i.id], memoryMB: Number(i.memoryMax) || dflt }) })).filter((x) => x.text);
     lists.replaceChildren(
+      insts.length ? h('div', { class: 'section' }, h('h3', null, 'Recommended memory per instance'),
+        h('p', null, 'What Junction suggests for each instance, and where the number comes from. Change an instance’s mode on its Settings tab.'),
+        h('div', { class: 'list' }, h('div', { class: 'item mem-rec-row mem-rec-head' }, h('span', null, 'Instance'), h('span', null, 'Mode'), h('span', null, 'Uses'), h('span', null, 'Recommended')),
+          insts.map((i) => { const inf = infos[i.id]; return h('div', { class: 'item mem-rec-row' },
+            h('a', { href: '#', class: 'i-title ellipsis', onclick: (e) => { e.preventDefault(); go('instance', { id: i.id, tab: 'settings' }); } }, i.name),
+            h('span', null, inf ? MODE_TEXT[inf.mode] : '—'),
+            h('span', null, inf ? M.gbText(inf.effectiveMB) : '—'),
+            h('span', { title: inf?.rec?.reason || '' }, inf?.rec ? `${M.gbText(inf.rec.mb)} · ${inf.rec.label}` : 'No recommendation')); }))) : null,
       h('div', { class: 'section' }, h('h3', null, 'Instances with their own memory'),
         h('p', null, 'These ignore the default above. “Use default” removes the instance\'s own setting.'),
         own.length
@@ -190,14 +200,14 @@ function settingsMemory(s, info, auto) {
             h('a', { href: '#', class: 'i-title ellipsis', onclick: (e) => { e.preventDefault(); go('instance', { id: i.id, tab: 'settings' }); } }, i.name),
             h('span', { class: 'i-ver' }, i.memoryMax ? `${M.gbText(i.memoryMax)} max` : 'default max', i.memoryMin ? `, ${M.gbText(i.memoryMin)} min` : ''),
             h('button', { class: 'btn sm', type: 'button', onclick: async () => {
-              try { await call('inst:update', i.id, { memoryMax: null, memoryMin: null }); i.memoryMax = null; i.memoryMin = null; drawLists(); toast(`${i.name} uses the default now`, 'good'); } catch (e) { toast(e.message, 'error'); }
+              try { await call('inst:update', i.id, { memoryMax: null, memoryMin: null, memoryMode: 'default' }); i.memoryMax = null; i.memoryMin = null; if (infos[i.id]) infos[i.id] = { ...infos[i.id], mode: 'default', effectiveMB: dflt }; drawLists(); toast(`${i.name} uses the default now`, 'good'); } catch (e) { toast(e.message, 'error'); }
             } }, icon('undo', 13), 'Use default'))))
           : h('div', { class: 'hint' }, 'None. Every instance uses the default.')),
       hints.length ? h('div', { class: 'section' }, h('h3', null, 'Big packs'),
         hints.map(({ i, text }) => h('div', { class: 'notice warn', style: { marginBottom: '8px' } }, icon('alert'),
           h('div', { class: 'grow' }, text, '. ', h('a', { href: '#', onclick: (e) => { e.preventDefault(); go('instance', { id: i.id, tab: 'settings' }); } }, 'Change it in its settings'))))) : null);
   }
-  Promise.all([call('inst:list'), call('inst:modCounts')]).then(([l, c]) => { insts = l; counts = c; if (setHere(lists)) drawLists(); }).catch(() => {});
+  Promise.all([call('inst:list'), call('inst:modCounts'), call('inst:memoryInfoAll').catch(() => ({}))]).then(([l, c, inf]) => { insts = l; counts = c; infos = inf; if (setHere(lists)) drawLists(); }).catch(() => {});
 
   return [
     h('div', { class: 'section' }, h('h3', null, 'Maximum memory'),
