@@ -23,7 +23,7 @@ function defaults() {
     backupsKept: 5, // update backups kept per instance
     showSnapshots: false,
     includeOptionalPackFiles: true,
-    updateChannel: 'alpha', // newest of: release | beta | alpha
+    updateChannel: 'auto', // auto (each mod stays on its own channel) | release | beta | alpha
     confirmBeforeDelete: true,
     appearance: { ...DEFAULT_APPEARANCE }, // accent, background, corners, sidebar, size (see appearance.js)
     showNews: true, // Minecraft news carousel on Home

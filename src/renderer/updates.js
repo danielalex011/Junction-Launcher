@@ -3,11 +3,11 @@
 
 // ----- update review
 const CHANNELS = [
+  { value: 'auto', label: 'Same channel as installed' },
   { value: 'release', label: 'Releases only' },
   { value: 'beta', label: 'Releases & betas' },
   { value: 'alpha', label: 'Everything (incl. alpha)' },
 ];
-const CH_RANK = { release: 0, beta: 1, alpha: 2 };
 
 function releaseBadge(t) {
   return h('span', { class: `badge plain ${t === 'release' ? 'good' : t === 'beta' ? 'warn' : 'bad'}` }, t || 'release');
@@ -24,11 +24,12 @@ function updateReviewDialog(inst, updates, onDone) {
  */
 function multiUpdateReviewDialog(groups, onDone) {
   const multi = groups.length > 1;
-  let channel = state.settings?.updateChannel || 'alpha';
-  const allowed = (v) => (CH_RANK[v.releaseType] ?? 0) <= CH_RANK[channel];
+  let channel = state.settings?.updateChannel || 'auto';
+  const allowedFor = (row, v) => JunctionChannel.allowed(channel, row.u.currentReleaseType, v.releaseType);
+  const channelWord = (row) => (JunctionChannel.ceiling(channel, row.u.currentReleaseType) === 0 ? 'release' : 'release or beta');
   const secs = groups.map(({ inst, updates }) => {
-    const sec = { inst, running: state.running.get(inst.id) === 'running', rows: [] };
-    sec.rows = updates.map((u) => ({ sec, u, include: allowed(u.version) && !sec.running, touched: false, candidates: null, chosen: u.version, failed: false }));
+    const sec = { inst, running: state.running.get(inst.id) === 'running', rows: [], collapsed: groups.length > 2 }; // many instances: start folded
+    sec.rows = updates.map((u) => ({ sec, u, include: false, touched: false, candidates: null, chosen: u.version, failed: false }));
     return sec;
   });
   const rows = secs.flatMap((sec) => sec.rows);
@@ -36,7 +37,7 @@ function multiUpdateReviewDialog(groups, onDone) {
   const applyChannel = (row) => {
     if (row.touched) return;
     const list = row.candidates || [row.u.version];
-    const best = list.find(allowed);
+    const best = list.find((v) => allowedFor(row, v));
     if (best) { row.chosen = best; row.include = !row.sec.running; } else { row.include = false; }
   };
 
@@ -56,13 +57,13 @@ function multiUpdateReviewDialog(groups, onDone) {
       },
     }, opts.map((v) => h('option', { value: String(v.id) }, `${v.versionNumber}${v.releaseType !== 'release' ? `  (${v.releaseType})` : ''}  ·  ${ago(v.date)}`)));
     sel.value = String(row.chosen.id);
-    const noneInChannel = row.candidates && !row.touched && !row.candidates.some(allowed);
+    const noneInChannel = row.candidates && !row.touched && !row.candidates.some((v) => allowedFor(row, v));
     return h('div', { class: `item upd-row ${row.include ? '' : 'skipped'}` },
       h('input', { type: 'checkbox', checked: row.include, disabled: sec.running, onchange: (e) => { row.include = e.target.checked; row.touched = true; redraw(); } }),
       avatar({ icon: u.icon, title: u.title }, 'sm'),
       h('div', { style: { minWidth: 0 } },
         h('div', { class: 'i-title ellipsis' }, u.title),
-        h('div', { class: 'i-file ellipsis' }, noneInChannel ? h('span', { style: { color: 'var(--warn)' } }, `No ${channel === 'release' ? 'release' : 'release or beta'} update — pick one to include it`) : SRC[u.source])),
+        h('div', { class: 'i-file ellipsis' }, noneInChannel ? h('span', { style: { color: 'var(--warn)' } }, `No ${channelWord(row)} update — pick one to include it`) : SRC[u.source])),
       h('div', { class: 'upd-from ellipsis', title: u.current }, u.current || '—'),
       icon('arrowLeft', 14),
       h('div', { class: 'row', style: { minWidth: 0, gap: '6px' } }, sel, row.candidates ? null : h('div', { class: 'spinner', style: { width: '14px', height: '14px' } })),
@@ -72,17 +73,18 @@ function multiUpdateReviewDialog(groups, onDone) {
   const setSection = (sec, on) => { sec.rows.forEach((r) => { r.include = on && !sec.running; r.touched = true; }); redraw(); };
   const renderSection = (sec) => {
     const n = sec.rows.filter((r) => r.include).length;
-    return h('div', { class: 'upd-sec' },
+    return h('div', { class: `upd-sec${sec.collapsed ? ' folded' : ''}` },
       multi ? h('div', { class: 'upd-sec-head' },
+        h('button', { class: 'btn ghost sm upd-fold', type: 'button', 'aria-expanded': String(!sec.collapsed), 'aria-label': `${sec.collapsed ? 'Show' : 'Hide'} the updates of ${sec.inst.name}`, onclick: () => { sec.collapsed = !sec.collapsed; redraw(); } }, icon('chevronDown', 16)),
         avatar(sec.inst, 'sm'),
         h('div', { class: 'grow', style: { minWidth: 0 } },
           h('div', { class: 'i-title ellipsis' }, sec.inst.name),
           h('div', { class: 'i-file ellipsis' }, instSubtitle(sec.inst))),
-        h('span', { class: 'muted small' }, `${n} of ${sec.rows.length} selected`),
+        h('span', { class: 'muted small' }, `${sec.rows.length} update${sec.rows.length === 1 ? '' : 's'} · ${n} selected`),
         h('button', { class: 'btn ghost sm', type: 'button', disabled: sec.running, onclick: () => setSection(sec, true) }, 'All'),
         h('button', { class: 'btn ghost sm', type: 'button', disabled: sec.running, onclick: () => setSection(sec, false) }, 'None')) : null,
-      sec.running ? h('div', { class: 'notice warn', style: { margin: 0 } }, icon('alert'), 'Minecraft is running from this instance. Close the game first.') : null,
-      h('div', { class: 'list upd-list' }, sec.rows.map(renderRow)));
+      sec.running && !sec.collapsed ? h('div', { class: 'notice warn', style: { margin: 0 } }, icon('alert'), 'Minecraft is running from this instance. Close the game first.') : null,
+      sec.collapsed ? null : h('div', { class: 'list upd-list' }, sec.rows.map(renderRow)));
   };
   let actionBtn;
   const redraw = () => {
@@ -151,7 +153,7 @@ function multiUpdateReviewDialog(groups, onDone) {
   });
   m.el.style.width = 'min(1100px, 100%)';
   actionBtn = m.el.querySelectorAll('.m-foot .btn')[1];
-  rows.forEach((r) => { if (!allowed(r.u.version)) r.include = false; });
+  rows.forEach((r) => { r.include = allowedFor(r, r.u.version) && !r.sec.running; });
   redraw();
 
   // Load every newer compatible version per mod (a few at a time).

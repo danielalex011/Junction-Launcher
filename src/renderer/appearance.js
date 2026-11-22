@@ -5,7 +5,18 @@ const ACCENT_PRESETS = [
   { name: 'Periwinkle', hex: '#8ea2ff' }, { name: 'Sky', hex: '#5cc8ff' }, { name: 'Mint', hex: '#3ccf8e' }, { name: 'Lime', hex: '#a3e635' },
   { name: 'Amber', hex: '#f2b84b' }, { name: 'Orange', hex: '#ff8a4c' }, { name: 'Rose', hex: '#ff6b8b' }, { name: 'Violet', hex: '#c084fc' },
 ];
-const appearanceLive = { zoom: null };
+const appearanceLive = { zoom: null, showSize: null };
+const UI_SIZES = [90, 100, 110, 125];
+
+/** Ctrl+= / Ctrl+- / Ctrl+0: next size up or down, or back to 100%. */
+function stepInterfaceSize(dir) {
+  const cur = state.settings?.appearance?.scale || 100;
+  const next = dir === 0 ? 100 : dir > 0 ? UI_SIZES.find((n) => n > cur) : [...UI_SIZES].reverse().find((n) => n < cur);
+  if (!next) { toast(`Interface size ${cur}%`, 'info', 1500); return; }
+  changeAppearance({ scale: next });
+  if (appearanceLive.showSize && document.body.contains($('.ap-sizes'))) appearanceLive.showSize();
+  toast(`Interface size ${next}%`, 'info', 1500);
+}
 
 /** Puts the saved look on the page. Cheap to call again after every change. */
 function applyAppearance(a = state.settings?.appearance) {
@@ -83,6 +94,13 @@ function appearanceSection() {
     sliders.replaceChildren(rangeRow('Dim', 'bgDim', 0, 90, 1, (n) => `${n}%`, !a.backgroundFile), rangeRow('Blur', 'bgBlur', 0, 24, 1, (n) => `${n} px`, !a.backgroundFile));
   };
 
+  const sizeBtns = h('div', { class: 'ap-sizes', role: 'group', 'aria-label': 'Interface size' });
+  const showSize = () => {
+    const cur = state.settings.appearance.scale;
+    for (const b of sizeBtns.querySelectorAll('button')) b.setAttribute('aria-pressed', String(Number(b.dataset.pct) === cur));
+  };
+  for (const pct of UI_SIZES) sizeBtns.append(h('button', { class: 'btn sm', type: 'button', 'data-pct': String(pct), onclick: () => { changeAppearance({ scale: pct }); showSize(); } }, `${pct}%`));
+  appearanceLive.showSize = showSize;
   const sidebarSel = select([{ value: 'left', label: 'Left' }, { value: 'right', label: 'Right' }], a0.sidebar, (v) => changeAppearance({ sidebar: v }));
   const rounded = h('input', { type: 'checkbox', checked: a0.rounded !== false, onchange: (e) => changeAppearance({ rounded: e.target.checked }) });
   const compact = h('input', { type: 'checkbox', checked: Boolean(a0.compact), onchange: (e) => changeAppearance({ compact: e.target.checked }) });
@@ -99,11 +117,12 @@ function appearanceSection() {
       h('div', { class: 'hint' }, 'The picture is copied into Junction\'s data folder. Raise Dim or Blur if text gets hard to read.')),
     h('div', { class: 'form-grid ap-grid' },
       h('label', { class: 'field' }, 'Sidebar', sidebarSel),
-      rangeRow('Interface size', 'scale', 90, 125, 5, (n) => `${n}%`, false)),
+      h('div', { class: 'field' }, 'Interface size', sizeBtns)),
     h('div', { class: 'row wrap', style: { gap: '22px', marginTop: '12px' } },
       h('label', { class: 'check' }, rounded, 'Rounded corners'),
       h('label', { class: 'check' }, compact, 'Compact sidebar (icons only)')));
   showAccent();
   showBg();
+  showSize();
   return section;
 }

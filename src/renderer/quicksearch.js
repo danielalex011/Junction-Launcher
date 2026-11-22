@@ -3,8 +3,8 @@
 // only the last row ("Search Browse for …") goes online, and only after you pick it. Plain script: shares one global scope with the other src/renderer files (load order is in index.html).
 
 const QS_RECENT_KEY = 'junction.qs.recent';
-const QS_MAX_MODS = 8;
-const QS_KIND_LABEL = { instance: 'Instance', mod: 'Mod', page: 'Page', action: 'Action', browse: 'Browse' };
+const QS_MAX_MODS = 5;
+const QS_KIND_LABEL = { instance: 'Instance', mod: 'Mod', page: 'Page', action: 'Action', browse: 'Browse', more: '' };
 const qsUi = { root: null };
 
 function qsLoadRecent() { try { const r = JSON.parse(localStorage.getItem(QS_RECENT_KEY) || '[]'); return Array.isArray(r) ? r.filter((x) => typeof x === 'string').slice(0, 8) : []; } catch { return []; } }
@@ -64,6 +64,7 @@ function openQuickSearch() {
   let mods = [];
   let rows = [];
   let sel = 0;
+  let showAllMods = false;
   const fixed = qsFixedItems();
 
   const input = h('input', { type: 'text', class: 'qs-input', placeholder: 'Search instances, mods, pages and actions…', role: 'combobox', 'aria-expanded': 'true', 'aria-controls': 'qs-list', 'aria-autocomplete': 'list', autocomplete: 'off', spellcheck: 'false', 'aria-label': 'Quick search' });
@@ -82,6 +83,7 @@ function openQuickSearch() {
 
   const run = (row, how) => {
     const { item } = row;
+    if (item.kind === 'more') { showAllMods = true; render(); return; }
     closeQuickSearch();
     if (item.kind !== 'browse') qsRemember(item.id);
     if (item.inst && how === 'play') play(item.inst);
@@ -93,8 +95,14 @@ function openQuickSearch() {
     const text = input.value.trim();
     const modItems = mods.map((m) => ({ id: `mod:${m.instanceId}:${m.file}`, kind: 'mod', title: m.title, sub: `in ${m.instanceName}`, version: m.version, keywords: [m.version], run: () => go('instance', { id: m.instanceId, tab: 'mod' }) }));
     const ranked = JunctionSearch.rank(text, [...qsInstanceItems(insts), ...fixed, ...(text ? modItems : [])], { recent: qsLoadRecent(), limit: 60 });
+    const modCount = ranked.filter((r) => r.item.kind === 'mod').length;
     let shownMods = 0;
-    rows = ranked.filter((r) => r.item.kind !== 'mod' || ++shownMods <= QS_MAX_MODS).slice(0, 30);
+    const limit = showAllMods ? Infinity : QS_MAX_MODS;
+    rows = ranked.filter((r) => r.item.kind !== 'mod' || ++shownMods <= limit).slice(0, showAllMods ? 80 : 30);
+    if (!showAllMods && modCount > QS_MAX_MODS) {
+      const hidden = modCount - QS_MAX_MODS;
+      rows.push({ item: { id: 'more-mods', kind: 'more', title: `Show ${hidden} more mod${hidden === 1 ? '' : 's'}`, icon: 'box', run: () => {} }, score: 0 });
+    }
     if (text) rows.push({ item: { id: 'browse', kind: 'browse', title: `Search Browse for “${text}”`, sub: 'Modrinth and CurseForge', icon: 'compass', run: () => go('browse', { query: text }) }, score: 0 });
     sel = Math.min(sel, rows.length - 1);
     list.replaceChildren(...rows.map((row, i) => {
@@ -117,7 +125,7 @@ function openQuickSearch() {
     list.children[sel]?.scrollIntoView({ block: 'nearest' });
   };
 
-  input.addEventListener('input', () => { sel = 0; render(); });
+  input.addEventListener('input', () => { sel = 0; showAllMods = false; render(); });
   input.addEventListener('keydown', (e) => {
     if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); closeQuickSearch(); }
     else if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {

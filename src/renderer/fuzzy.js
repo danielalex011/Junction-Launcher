@@ -62,6 +62,7 @@ const JunctionSearch = (function searchModule() {
   }
 
   const KIND_TIEBREAK = { instance: 3, page: 2, action: 1, mod: 0 };
+  const MOD_FACTOR = 0.85; // a mod has to match clearly better than an instance, page or action to rank above it
   const EMPTY_BASE = { page: 60, instance: 50, action: 40 };
 
   /**
@@ -81,12 +82,15 @@ const JunctionSearch = (function searchModule() {
         else if (item.queryOnly || !(item.kind in EMPTY_BASE)) return;
         else score = EMPTY_BASE[item.kind] - Math.min(order, 30) * 0.1;
       } else {
-        score = Math.max(
-          textScore(q, item.title),
-          0.92 * textScore(q, `${item.title} ${item.sub || ''}`), // words may be split between the name and "in <instance>"
-          0.8 * textScore(q, (item.keywords || []).join(' ')),
-          0.45 * textScore(q, item.sub || ''),
-        );
+        if (item.kind === 'mod') score = MOD_FACTOR * textScore(q, item.title); // mods match on their own name only, never on "in <instance>"
+        else {
+          score = Math.max(
+            textScore(q, item.title),
+            0.92 * textScore(q, `${item.title} ${item.sub || ''}`), // words may be split between the name and a subtitle
+            0.8 * textScore(q, (item.keywords || []).join(' ')),
+            0.45 * textScore(q, item.sub || ''),
+          );
+        }
         if (!score) return;
         score += (KIND_TIEBREAK[item.kind] || 0) + (r >= 0 ? 14 - r : 0);
       }

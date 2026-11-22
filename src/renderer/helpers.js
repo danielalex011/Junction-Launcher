@@ -100,6 +100,14 @@ function ago(ts) {
   for (const [sec, u] of units) if (s >= sec) { const n = Math.floor(s / sec); return `${n} ${u}${n > 1 ? 's' : ''} ago`; }
   return 'just now';
 }
+/** Like ago(), but short enough for a small card: "14 h ago", "3 d ago". */
+function agoShort(ts) {
+  if (!ts) return 'never';
+  const t = typeof ts === 'number' ? ts : Date.parse(ts);
+  const s = Math.max(1, Math.round((Date.now() - t) / 1000));
+  for (const [sec, u] of [[31536000, 'y'], [2592000, 'mo'], [604800, 'w'], [86400, 'd'], [3600, 'h'], [60, 'min']]) if (s >= sec) return `${Math.floor(s / sec)} ${u} ago`;
+  return 'just now';
+}
 function fmtDuration(ms) {
   const m = Math.round((ms || 0) / 60000);
   if (m < 60) return `${m} min`;

@@ -79,6 +79,11 @@ window.addEventListener('drop', async (e) => {
 
 window.addEventListener('keydown', (e) => {
   if ((e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey && e.key.toLowerCase() === 'k') { e.preventDefault(); openQuickSearch(); }
+  if ((e.ctrlKey || e.metaKey) && !e.altKey && state.settings?.appearance) {
+    if (e.key === '=' || e.key === '+') { e.preventDefault(); stepInterfaceSize(1); }
+    else if (e.key === '-' || e.key === '_') { e.preventDefault(); stepInterfaceSize(-1); }
+    else if (e.key === '0') { e.preventDefault(); stepInterfaceSize(0); }
+  }
 });
 
 on('app:openFiles', (files) => { for (const f of files) importPackFile(f); });

@@ -29,7 +29,7 @@ async function renderLibrary(_p, token) {
         h('span', { class: 'row' }, state.running.get(inst.id) === 'running' ? h('span', { class: 'state-dot' }) : null,
           updateBadge(inst.id, badges[inst.id]),
           inst.pack ? sourceBadge(inst.pack.source === 'file' ? 'file' : inst.pack.source) : null,
-          h('span', { class: 'ellipsis' }, inst.lastPlayed ? `Played ${ago(inst.lastPlayed)}` : 'Never played')),
+          h('span', { class: 'ellipsis', title: inst.lastPlayed ? `Played ${ago(inst.lastPlayed)}` : '' }, inst.lastPlayed ? `Played ${agoShort(inst.lastPlayed)}` : 'Never played')),
         playButton(inst, 'sm')))));
   }
   view().replaceChildren(h('div', { class: 'page page-full' }, head, body));

@@ -26,7 +26,7 @@ test('search: exact and prefix matches come first, every typed word has to match
   assert.equal(top('sodium')[0], 'mod:1', 'exact word beats "Sodium Extra"');
   assert.equal(top('lib')[0], 'page:library');
   assert.equal(top('prom')[0], 'inst:a');
-  assert.deepEqual(top('sodium craftoria').slice(0, 1), ['mod:3'], 'words can match the title and the "in <instance>" part');
+  assert.deepEqual(top('sodium craftoria'), [], 'a mod does not match on the "in <instance>" part');
   assert.deepEqual(top('zzzzqq'), []);
 });
 
@@ -127,4 +127,17 @@ test('mod index for the quick search comes from the saved content.json files', a
   const idx = await instances.modIndex();
   assert.deepEqual(idx.map((m) => [m.title, m.instanceName, m.version]).sort(), [['My Local', 'Alpha', '1.0'], ['Sodium', 'Alpha', '0.6.0'], ['bare', 'Alpha', '']]);
   assert.ok(!idx.some((m) => m.instanceId === b.id));
+});
+
+test('quick search: mods match on their own name only, and instances rank above mods', () => {
+  const items = [
+    { id: 'inst:p', kind: 'instance', title: 'Prominence II', sub: 'Fabric 1.20.1', keywords: ['fabric'] },
+    { id: 'mod:1', kind: 'mod', title: 'Cable Fixes for Prom', sub: 'in Some Pack' },
+    { id: 'mod:2', kind: 'mod', title: 'Sodium', sub: 'in Prominence II' },
+    { id: 'mod:3', kind: 'mod', title: 'Lithium', sub: 'in Prominence II' },
+  ];
+  const ids = S.rank('prom', items).map((r) => r.item.id);
+  assert.equal(ids[0], 'inst:p', 'the instance beats a mod that has the word in its name');
+  assert.ok(ids.includes('mod:1'));
+  assert.ok(!ids.includes('mod:2') && !ids.includes('mod:3'), 'the "in Prominence II" label does not make a mod match');
 });

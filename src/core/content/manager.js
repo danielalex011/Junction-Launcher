@@ -12,6 +12,8 @@ const { matchKey, exists, hashFile, ensureDir, pool, readJson, writeJson } = req
 const { describeError, HttpError } = require('../http');
 
 const { pickVersion } = require('../sources/choose');
+const { sameVariant } = require('./variant');
+const CF_RELEASE = { 1: 'release', 2: 'beta', 3: 'alpha' }; // CurseForge's releaseType numbers in latestFilesIndexes
 
 /** HTTP errors already name the site; other failures (no connection, ...) get the site put in front. */
 const siteError = (site, e) => (e instanceof HttpError ? describeError(e) : `${site}: ${describeError(e)}`);
@@ -494,13 +496,28 @@ class ContentManager {
       const items = all.filter((i) => i.type === t && i.source === 'modrinth' && !i.pinned && idx.files[i.file]?.sha1);
       if (!items.length) continue;
       try {
-        const latest = await this.sources.modrinth.latestByHash(items.map((i) => idx.files[i.file].sha1), {
-          loaders: t === 'mod' ? loaders : undefined, gameVersions: [inst.mcVersion],
-        });
+        const hashes = items.map((i) => idx.files[i.file].sha1);
+        let installed = {};
+        try { installed = await this.sources.modrinth.versionsByHash(hashes); } catch { /* without it the loader check is skipped */ }
+        // Other kinds of content have their own "loader" (minecraft = resource pack, datapack...), so ask for the same kind as the installed file.
+        const groups = new Map();
         for (const i of items) {
-          const v = latest[idx.files[i.file].sha1];
-          if (v && v.id !== i.versionId && !v.files.some((f) => f.sha1 === idx.files[i.file].sha1)) {
-            updates.push({ file: i.file, title: i.title, icon: i.icon, type: t, source: 'modrinth', current: i.versionName, currentVersionId: i.versionId, projectId: i.projectId, next: v.versionNumber, version: v });
+          const sha = idx.files[i.file].sha1;
+          const key = t === 'mod' ? '' : (installed[sha]?.loaders || []).join(',');
+          if (!groups.has(key)) groups.set(key, []);
+          groups.get(key).push(i);
+        }
+        const latest = {};
+        for (const [key, list] of groups) {
+          Object.assign(latest, await this.sources.modrinth.latestByHash(list.map((i) => idx.files[i.file].sha1), {
+            loaders: t === 'mod' ? loaders : (key ? key.split(',') : undefined), gameVersions: [inst.mcVersion],
+          }));
+        }
+        for (const i of items) {
+          const sha = idx.files[i.file].sha1;
+          const v = latest[sha];
+          if (v && v.id !== i.versionId && !v.files.some((f) => f.sha1 === sha) && sameVariant(installed[sha], v)) {
+            updates.push({ file: i.file, title: i.title, icon: i.icon, type: t, source: 'modrinth', current: i.versionName, currentVersionId: i.versionId, currentReleaseType: installed[sha]?.releaseType, projectId: i.projectId, next: v.versionNumber, version: v });
           }
         }
       } catch (e) { updates.push({ error: siteError('Modrinth', e) }); }
@@ -518,12 +535,15 @@ class ContentManager {
           const loaderTypes = loaders.map((l) => LOADER_TYPE[l]);
           const cands = m.latestFilesIndexes.filter((x) => x.gameVersion === inst.mcVersion && (i.type !== 'mod' || x.modLoader == null || loaderTypes.includes(x.modLoader)));
           const best = cands.sort((a, b) => (a.releaseType - b.releaseType) || (b.fileId - a.fileId))[0];
-          if (best && Number(best.fileId) > Number(i.versionId)) wanted.push({ item: i, fileId: best.fileId, project: m });
+          if (best && Number(best.fileId) > Number(i.versionId)) {
+            const mine = m.latestFilesIndexes.find((x) => String(x.fileId) === String(i.versionId));
+            wanted.push({ item: i, fileId: best.fileId, project: m, currentReleaseType: mine ? CF_RELEASE[mine.releaseType] : undefined });
+          }
         }
         const files = new Map((await this.sources.curseforge.files(wanted.map((w) => w.fileId))).map((f) => [f.id, f]));
         for (const w of wanted) {
           const v = files.get(w.fileId);
-          if (v) updates.push({ file: w.item.file, title: w.item.title, icon: w.item.icon, type: w.item.type, source: 'curseforge', current: w.item.versionName, currentVersionId: w.item.versionId, projectId: w.item.projectId, next: v.versionNumber, version: v, project: w.project });
+          if (v && sameVariant({ versionNumber: w.item.versionName }, v)) updates.push({ file: w.item.file, title: w.item.title, icon: w.item.icon, type: w.item.type, source: 'curseforge', current: w.item.versionName, currentVersionId: w.item.versionId, currentReleaseType: w.currentReleaseType, projectId: w.item.projectId, next: v.versionNumber, version: v, project: w.project });
         }
       } catch (e) { updates.push({ error: siteError('CurseForge', e) }); }
     }
@@ -537,7 +557,7 @@ class ContentManager {
     const cur = list.find((v) => String(v.id) === String(currentVersionId));
     const curDate = cur ? new Date(cur.date).getTime() : null;
     return list
-      .filter((v) => String(v.id) !== String(currentVersionId) && (curDate === null || new Date(v.date).getTime() > curDate))
+      .filter((v) => String(v.id) !== String(currentVersionId) && (curDate === null || new Date(v.date).getTime() > curDate) && sameVariant(cur, v))
       .sort((a, b) => new Date(b.date) - new Date(a.date))
       .slice(0, 60)
       .map((v) => ({ ...v, changelog: undefined }));

@@ -152,6 +152,9 @@ a { color: var(--accent); }
 .upd-sec { display: flex; flex-direction: column; gap: 8px; }
 .upd-sec-head { display: flex; align-items: center; gap: 10px; padding: 0 2px; }
 .upd-sec-head .i-title { font-weight: 700; }
+.upd-fold { padding: 4px; }
+.upd-fold .ico { transition: transform .15s; }
+.upd-sec.folded .upd-fold .ico { transform: rotate(-90deg); }
 .item.upd-row { grid-template-columns: 22px 34px minmax(110px, 1fr) minmax(70px, 170px) 14px minmax(230px, 1.25fr) 64px; }
 .upd-row .ico { transform: rotate(180deg); color: var(--faint); }
 .upd-row.skipped .i-title, .upd-row.skipped .avatar, .upd-row.skipped .upd-from, .upd-row.skipped select { opacity: .45; }
@@ -591,7 +594,10 @@ kbd { font: 600 11px/1 ui-monospace, "Cascadia Mono", Consolas, monospace; color
 .qs-foot span { display: inline-flex; align-items: center; gap: 4px; }
 
 /* ---------- appearance ---------- */
-#bg-layer { display: none; position: fixed; inset: -40px; z-index: 0; background-size: cover; background-position: center; }
+/* Oversized in viewport units (not pixels) so it still covers the window at any zoom factor, with room for the blur's soft edges. */
+#bg-layer { display: none; position: fixed; left: -10vw; top: -10vh; width: 120vw; height: 120vh; z-index: 0; background-size: cover; background-position: center; background-repeat: no-repeat; }
+.ap-sizes { display: flex; gap: 6px; margin-top: 6px; }
+.ap-sizes .btn[aria-pressed="true"] { background: var(--accent); color: var(--accent-ink); border-color: transparent; }
 #bg-layer::after { content: ""; position: absolute; inset: 0; background: rgba(17, 19, 23, var(--bg-dim, .55)); }
 body.has-bg #bg-layer { display: block; }
 body.has-bg { --panel: rgba(23, 26, 32, .9); --panel-2: rgba(29, 33, 40, .92); --panel-3: rgba(37, 42, 51, .94); background: transparent; }
