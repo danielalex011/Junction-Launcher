@@ -99,8 +99,9 @@ async function newInstanceDialog(preset = {}) {
   let nameTouched = false;
   let templates = [];
   let templateId = null; // null = start blank
+  let templateName = '';
   const nameInput = h('input', { type: 'text', placeholder: 'Instance name', oninput: () => { nameTouched = true; } });
-  const autoName = () => { if (!nameTouched) nameInput.value = `${LOADER[loader]} ${mc}`; };
+  const autoName = () => { if (!nameTouched) nameInput.value = templateId ? templateName : `${LOADER[loader]} ${mc}`; };
   const mcSelectWrap = h('div');
   const loaderVerWrap = h('div');
   const status = h('div', { class: 'hint' });
@@ -146,6 +147,18 @@ async function newInstanceDialog(preset = {}) {
   const startSeg = h('div', { class: 'seg' },
     h('button', { type: 'button', class: 'on', onclick: (e) => setStart(e.currentTarget, false) }, 'Blank'),
     h('button', { type: 'button', onclick: (e) => setStart(e.currentTarget, true) }, 'Template'));
+  /** Start with the template's own Minecraft version, loader and name. All of them can still be changed. */
+  function useTemplateDefaults() {
+    const t = templates.find((x) => x.id === templateId);
+    if (!t) return;
+    templateName = t.name;
+    if (t.mcVersion) { if (!versions.some((v) => v.id === t.mcVersion)) versions = [{ id: t.mcVersion, type: 'release' }, ...versions]; mc = t.mcVersion; renderMcSelect(); }
+    const k = t.loader?.type;
+    if (k && LOADER[k]) { loader = k; seg.querySelectorAll('button').forEach((b) => b.classList.toggle('on', b.textContent === LOADER[k])); }
+    nameTouched = false;
+    autoName();
+    loadLoaderVersions();
+  }
   function setStart(btn, useTemplate) {
     startSeg.querySelectorAll('button').forEach((b) => b.classList.toggle('on', b === btn));
     if (!useTemplate) { templateId = null; templateWrap.replaceChildren(); return; }
@@ -155,7 +168,8 @@ async function newInstanceDialog(preset = {}) {
       return;
     }
     templateId = templateId || templates[0].id;
-    templateWrap.replaceChildren(select(templates.map((t) => ({ value: t.id, label: `${t.name} (${tplCountText(t.counts)})` })), templateId, (v) => { templateId = v; }),
+    useTemplateDefaults();
+    templateWrap.replaceChildren(select(templates.map((t) => ({ value: t.id, label: `${t.name} (${tplCountText(t.counts)})` })), templateId, (v) => { templateId = v; useTemplateDefaults(); }),
       h('div', { class: 'hint' }, 'Pick the Minecraft version and loader below. Junction looks up the newest matching version of each project and shows you a list before installing anything.'));
   }
   call('template:list').then((l) => { templates = l; }).catch(() => {});
@@ -187,9 +201,14 @@ async function newInstanceDialog(preset = {}) {
             const name = nameInput.value.trim();
             setTimeout(() => templateReviewDialog(plan, async (chosen) => {
               const made = await call('inst:create', { name, mcVersion: mc, loader: loaderSpec });
-              toast(`Created ${made.name}`, 'good');
+              toast(`Created ${made.name}. Adding ${chosen.length} item${chosen.length === 1 ? '' : 's'}: follow it in Activity.`, 'good');
               go('instance', { id: made.id });
-              try { await handleInstallResult(await call('template:apply', made.id, chosen, true), made.id); } catch (e) { toast(e.message, 'error'); }
+              try {
+                const r = await call('template:apply', made.id, chosen, { confirmed: true, templateId, copyFiles: (plan.copies || []).length > 0 });
+                templateResultReport(r, made.name);
+                if (r.blockedSession) await handleInstallResult({ blockedSession: r.blockedSession }, made.id);
+                if (state.view === 'instance' && state.params.id === made.id) go('instance', state.params); // the page was drawn before the files arrived
+              } catch (e) { toast(e.message, 'error'); }
             }), 0);
             return;
           }

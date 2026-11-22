@@ -602,9 +602,9 @@ function registerIpc() {
   handle('template:rename', async (id, name) => templates.rename(id, name));
   handle('template:delete', async (id) => templates.remove(id));
   handle('template:plan', async (id, target) => templates.plan(id, target || {}));
-  handle('template:apply', async (instId, chosen, confirmed) => {
+  handle('template:apply', async (instId, chosen, opts = {}) => {
     const inst = await instances.get(instId);
-    const r = await ctx.tasks.run(`Adding template content to ${inst.name}`, (t) => templates.apply(instId, chosen, { confirmed: confirmed === true, report: t.update }), { instanceId: instId, kind: 'mod', icon: 'mod', heavy: true });
+    const r = await ctx.tasks.run(`Adding template content to ${inst.name}`, (t) => templates.apply(instId, chosen, { confirmed: opts.confirmed === true, templateId: opts.templateId || null, copyFiles: opts.copyFiles === true, report: t.update }), { instanceId: instId, kind: 'mod', icon: 'mod', heavy: true });
     return { ...r, blockedSession: startBlockedSession(instId, r.blocked) };
   });
 

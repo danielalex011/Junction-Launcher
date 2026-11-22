@@ -6,7 +6,8 @@ const fs = require('fs');
 const fsp = fs.promises;
 const path = require('path');
 const { TYPE_DIR } = require('../instances');
-const { ensureDir, exists, readJson, writeJson, copyDir, safeJoin, slugify, shortId, pool } = require('../util');
+const { ensureDir, exists, readJson, writeJson, copyDir, safeJoin, slugify, shortId, pool, matchKey } = require('../util');
+const { CancelledError } = require('../taskcontext');
 const { describeError } = require('../http');
 const { pickVersion } = require('../sources/choose');
 const { ITEMS } = require('./worldcopy');
@@ -117,18 +118,24 @@ class Templates {
   }
 
   /**
-   * Looks up the newest matching version of every project for a Minecraft version + loader. Changes nothing.
-   * Each item: status 'add' (versionId etc. filled in), 'unavailable' (nothing for this version or loader) or 'skipped'.
+   * Looks up the newest matching version of every project for a Minecraft version + loader, and the required dependencies
+   * those versions need. Changes nothing.
+   * Each item: status 'add' (versionId etc. filled in), 'unavailable' (nothing for this version or loader, or a required
+   * dependency is missing) or 'skipped'. Dependencies the template doesn't have come back as extra 'add' items with
+   * `dependency: true` and `neededBy: [mod names]`. Optional dependencies are ignored.
    * The version is chosen like a normal install: best release type first (releases over betas over alphas), then newest.
    * A CurseForge file whose author blocked third-party downloads is still 'add' but flagged `manual`.
+   * A mod held back only because of a missing dependency keeps its version and is flagged `forceable`.
    */
   async plan(templateId, { mcVersion, loader }) {
     const t = await this.get(templateId);
     if (!mcVersion) throw new Error('Pick a Minecraft version first.');
     const loaderType = loader?.type || 'vanilla';
     const target = { mcVersion, loader: { type: loaderType } };
+    const where = (type) => (type === 'mod' ? `Minecraft ${mcVersion} with ${loaderType}` : `Minecraft ${mcVersion}`);
     const items = [];
     const jobs = [];
+    const versions = new Map(); // item -> the version picked for it (not sent to the page)
     for (const type of TYPES) {
       for (const p of t.content?.[type] || []) {
         const base = { type, source: p.source, projectId: p.projectId, title: p.title, icon: p.icon || null };
@@ -136,44 +143,126 @@ class Templates {
         else { const it = { ...base, status: 'unavailable', reason: '' }; items.push(it); jobs.push(it); }
       }
     }
+    const fill = (it, v) => {
+      const file = v.files?.find((f) => f.primary) || v.files?.[0];
+      if (!file) return false;
+      Object.assign(it, { status: 'add', reason: '', versionId: String(v.id), versionNumber: v.versionNumber, releaseType: v.releaseType, manual: !file.url });
+      versions.set(it, v);
+      return true;
+    };
     await pool(jobs, 6, async (it) => {
       try {
-        const list = await this.content.compatibleVersions(it.source, it.projectId, target, it.type);
-        const v = pickVersion(list, it.type);
-        if (!v) {
-          it.reason = it.type === 'mod' ? `No version for Minecraft ${mcVersion} with ${loaderType}.` : `No version for Minecraft ${mcVersion}.`;
-          return;
-        }
-        const file = v.files?.find((f) => f.primary) || v.files?.[0];
-        if (!file) { it.reason = 'This version has no downloadable file.'; return; }
-        Object.assign(it, { status: 'add', reason: '', versionId: String(v.id), versionNumber: v.versionNumber, releaseType: v.releaseType, manual: !file.url });
+        const v = pickVersion(await this.content.compatibleVersions(it.source, it.projectId, target, it.type), it.type);
+        if (!v) it.reason = `No version for ${where(it.type)}.`;
+        else if (!fill(it, v)) it.reason = 'This version has no downloadable file.';
       } catch (e) {
         it.reason = `Couldn't check right now: ${describeError(e)}`;
       }
     }, { count: false });
-    for (const s of t.skipped || []) items.push({ type: s.type, title: s.title, status: 'skipped', reason: `Left out when the template was saved (${s.why}).` });
-    return { template: this.summary(t), mcVersion, loader: { type: loaderType }, items };
+
+    // Required dependencies of the mods that will be added.
+    const byKey = new Map(items.filter((i) => i.projectId != null).map((i) => [`${i.source}:${i.projectId}`, i]));
+    const byTitle = new Map(items.filter((i) => i.type === 'mod').map((i) => [matchKey(i.title), i]));
+    const edges = []; // { mod, dep }: mod needs dep
+    const queue = items.filter((i) => i.type === 'mod' && i.status === 'add');
+    while (queue.length) {
+      const mod = queue.shift();
+      for (const d of versions.get(mod)?.deps || []) {
+        if (d.type !== 'required' || d.projectId == null) continue;
+        const key = `${d.source}:${d.projectId}`;
+        let dep = byKey.get(key);
+        if (!dep) {
+          const info = await this.content.projectInfo(d.source, d.projectId).catch(() => null);
+          const title = info?.title || 'a required mod';
+          dep = info && byTitle.get(matchKey(title)); // the template has the same mod from the other site
+          if (!dep) {
+            dep = { type: 'mod', source: d.source, projectId: String(d.projectId), title, icon: info?.icon || null, status: 'unavailable', reason: '', dependency: true, neededBy: [] };
+            const v = await this.content.bestVersion(d.source, d.projectId, target, 'mod').catch(() => null);
+            if (!v || !fill(dep, v)) dep.reason = `No version for ${where('mod')}.`;
+            else queue.push(dep);
+            byKey.set(key, dep);
+            items.push(dep);
+          }
+        }
+        if (dep !== mod) edges.push({ mod, dep });
+      }
+    }
+    // A mod whose dependency can't be added is held back; a dependency nobody needs any more is dropped.
+    const missing = new Map(); // mod -> [dependency names]
+    for (let changed = true; changed;) {
+      changed = false;
+      for (const { mod, dep } of edges) {
+        if (mod.status !== 'add' || dep.status === 'add') continue;
+        mod.status = 'unavailable'; mod.forceable = true;
+        changed = true;
+      }
+      for (const { mod, dep } of edges) {
+        if (mod.status === 'unavailable' && mod.forceable && dep.status !== 'add' && dep.status !== 'drop') {
+          const list = missing.get(mod) || [];
+          if (!list.includes(dep.title)) list.push(dep.title);
+          missing.set(mod, list);
+        }
+      }
+      for (const d of items) {
+        if (!d.dependency || d.status !== 'add') continue;
+        const live = edges.filter((e) => e.dep === d && e.mod.status === 'add').map((e) => e.mod.title);
+        if (!live.length) { d.status = 'drop'; changed = true; } else d.neededBy = [...new Set(live)];
+      }
+    }
+    for (const [mod, names] of missing) {
+      mod.reason = `Needs ${names.join(' and ')}, which ${names.length === 1 ? "isn't" : "aren't"} available for ${where('mod')}.`;
+    }
+    const out = items.filter((i) => i.status !== 'drop' && !(i.dependency && i.status !== 'add'));
+    for (const s of t.skipped || []) out.push({ type: s.type, title: s.title, status: 'skipped', reason: `Left out when the template was saved (${s.why}).` });
+    const copies = (t.files || []).map((f) => (f === 'config' ? 'config folder' : f));
+    return { template: this.summary(t), mcVersion, loader: { type: loaderType }, items: out, copies };
+  }
+
+  /** Copies the saved config folder and options files into the instance's game folder (a new instance has none of its own yet). */
+  async copyFiles(instId, templateId) {
+    const t = await this.get(templateId);
+    const from = path.join(this.dirOf(templateId), 'files');
+    const to = this.instances.gameDir(instId);
+    const copied = [];
+    for (const rel of t.files || []) {
+      const src = safeJoin(from, rel);
+      if (!(await exists(src))) continue;
+      const dest = safeJoin(to, rel);
+      await ensureDir(path.dirname(dest));
+      if ((await fsp.stat(src)).isDirectory()) await copyDir(src, dest);
+      else await fsp.copyFile(src, dest);
+      copied.push(rel === 'config' ? 'config folder' : rel);
+    }
+    return copied;
   }
 
   /**
-   * Installs what the user confirmed from plan(): `chosen` is a list of { type, source, projectId, versionId, title }.
-   * Needs `confirmed: true`, so nothing can install without the review. Returns the usual { installed, blocked, warnings }.
+   * Installs what the user confirmed from plan(): `chosen` is a list of { type, source, projectId, versionId, title }
+   * (dependencies are separate entries, so nothing is looked up a second time). Needs `confirmed: true`.
+   * One failing file never stops the rest: it is listed in `problems` and the others go on.
+   * Returns { installed, skipped, blocked, warnings, problems: [{ title, why }], copied }.
    */
-  async apply(instId, chosen, { confirmed = false, report = () => {} } = {}) {
+  async apply(instId, chosen, { confirmed = false, templateId = null, copyFiles = false, report = () => {} } = {}) {
     if (confirmed !== true) throw new Error('Please review the list and confirm before installing.');
-    const out = { installed: [], skipped: [], blocked: [], warnings: [] };
+    const out = { installed: [], skipped: [], blocked: [], warnings: [], problems: [], copied: [] };
+    if (copyFiles && templateId) {
+      try { out.copied = await this.copyFiles(instId, templateId); } catch (e) { out.problems.push({ title: 'Settings files', why: describeError(e) }); }
+    }
+    const list = chosen || [];
     let i = 0;
-    for (const c of chosen || []) {
+    for (const c of list) {
       if (!TYPE_DIR[c.type]) continue;
-      report(i++ / chosen.length, `Installing ${c.title || 'content'}`);
+      report(i++ / Math.max(1, list.length), `Installing ${c.title || 'content'}`);
       try {
-        const r = await this.content.installProject(instId, { source: c.source, id: c.projectId }, c.type, { versionId: c.versionId, report: (f, m) => report(null, m) });
+        const r = await this.content.installProject(instId, { source: c.source, id: c.projectId }, c.type, { versionId: c.versionId, withDeps: false, report: (f, m) => report(null, m) });
         out.installed.push(...r.installed); out.skipped.push(...r.skipped); out.blocked.push(...r.blocked); out.warnings.push(...r.warnings);
+        for (const w of r.warnings) out.problems.push({ title: c.title, why: w });
       } catch (e) {
-        out.warnings.push(`${c.title || c.projectId}: ${describeError(e)}`);
+        if (e instanceof CancelledError || e?.name === 'CancelledError') throw e; // Cancel stops everything; any other error only this file
+        out.problems.push({ title: c.title || String(c.projectId), why: describeError(e) });
       }
     }
-    report(1, 'Done');
+    report(1, out.problems.length ? 'Done with problems' : 'Done');
     return out;
   }
 }

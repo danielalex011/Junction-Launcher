@@ -213,7 +213,7 @@ function renderActivity() {
 }
 
 const FINISH_TEXT = {
-  done: (e) => (e.failedCount ? `⚠ ${e.failedCount} file${e.failedCount === 1 ? '' : 's'} failed` : '✓ Done'),
+  done: (e) => (e.problemCount ? `⚠ Done with problems: ${e.problemCount} item${e.problemCount === 1 ? '' : 's'} not installed` : e.failedCount ? `⚠ ${e.failedCount} file${e.failedCount === 1 ? '' : 's'} failed` : '✓ Done'),
   error: (e) => `✕ ${e.error || 'Something went wrong'}`,
   cancelled: () => '✕ Cancelled',
 };
@@ -244,7 +244,8 @@ function renderHistory() {
         h('div', { class: 'act-main' },
           h('div', { class: 'act-title ellipsis', title: plainName(e.title) }, plainName(e.title)),
           h('div', { class: 'act-step' }, h('span', { class: 'kind-tag' }, KIND_LABELS[e.kind] || 'Task'), ` · ${ago(e.finished)}`),
-          h('div', { class: `act-result ${e.status === 'done' && !e.failedCount ? 'good' : e.status === 'done' ? 'warn' : 'bad'}`, title: e.error || '' }, (FINISH_TEXT[e.status] || FINISH_TEXT.done)(e), retry ? ' → ' : '', retry)),
+          h('div', { class: `act-result ${e.status === 'done' && !e.failedCount && !e.problemCount ? 'good' : e.status === 'done' ? 'warn' : 'bad'}`, title: e.error || '' }, (FINISH_TEXT[e.status] || FINISH_TEXT.done)(e), retry ? ' → ' : '', retry),
+          (e.problems || []).length ? h('div', { class: 'act-step' }, ...e.problems.slice(0, 6).map((p) => h('div', { class: 'ellipsis', title: `${p.title}: ${p.why}` }, `${p.title}: ${p.why}`)), e.problemCount > 6 ? h('div', null, `and ${e.problemCount - 6} more`) : null) : null),
         h('div', { class: 'act-actions' },
           h('button', { class: 'btn ghost icon sm', type: 'button', title: 'Remove', onclick: (ev) => { ev.stopPropagation(); call('tasks:removeHistory', e.id).catch(() => {}); } }, icon('x', 14)))));
   }));

@@ -221,7 +221,7 @@ class ContentManager {
     return result;
   }
 
-  async installProject(instId, { source, id }, type = 'mod', { versionId, report } = {}) {
+  async installProject(instId, { source, id }, type = 'mod', { versionId, report, withDeps = true } = {}) {
     const inst = await this.instances.get(instId);
     const project = await this.projectInfo(source, id);
     let version;
@@ -234,7 +234,7 @@ class ContentManager {
       const loaderName = inst.loader?.type === 'vanilla' ? 'vanilla' : inst.loader?.type;
       throw new Error(`${project?.title || 'This project'} has no version for Minecraft ${inst.mcVersion}${type === 'mod' ? ` + ${loaderName}` : ''}`);
     }
-    return this.installVersion(instId, version, { type, project, report });
+    return this.installVersion(instId, version, { type, project, report, withDeps });
   }
 
   async removeFiles(instId, rels) {

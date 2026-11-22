@@ -88,43 +88,66 @@ function tplRenameDialog(t, done) {
 }
 
 /**
- * The review before anything is installed: will add / not available / skipped.
+ * The review before anything is installed: will add / needed by other mods / not available / skipped.
  * `plan` comes from template:plan. onConfirm(chosen) runs only when the user presses the button.
  */
 function templateReviewDialog(plan, onConfirm) {
-  const adds = plan.items.filter((i) => i.status === 'add').map((i) => ({ ...i, on: true }));
-  const missing = plan.items.filter((i) => i.status === 'unavailable');
+  const adds = plan.items.filter((i) => i.status === 'add' && !i.dependency).map((i) => ({ ...i, on: true }));
+  const deps = plan.items.filter((i) => i.status === 'add' && i.dependency).map((i) => ({ ...i, on: true }));
+  const missing = plan.items.filter((i) => i.status === 'unavailable').map((i) => ({ ...i, on: false }));
   const skipped = plan.items.filter((i) => i.status === 'skipped');
   const loaderName = LOADER[plan.loader.type] || 'Vanilla';
   let btn;
+  const chosenNow = () => [...adds, ...deps, ...missing.filter((m) => m.forceable)].filter((a) => a.on);
   const sync = () => {
-    const n = adds.filter((a) => a.on).length;
-    if (btn) { btn.disabled = n === 0; btn.replaceChildren(icon('plus'), n ? `Create and install ${n}` : 'Nothing to install'); }
+    const n = chosenNow().length;
+    if (btn) { btn.disabled = n === 0 && !(plan.copies || []).length; btn.replaceChildren(icon('plus'), n ? `Create and install ${n}` : 'Create instance'); }
   };
   const group = (title, hint, rows) => (rows.length ? h('div', null, h('b', null, title), hint ? h('div', { class: 'hint', style: { margin: '2px 0 6px' } }, hint) : null, h('div', { class: 'list' }, rows)) : null);
-  const row = (i, extra, lead) => h('div', { class: 'item', style: { gridTemplateColumns: `${lead ? '22px ' : ''}34px 1fr auto` } },
+  const row = (i, extra, lead, sub) => h('div', { class: 'item', style: { gridTemplateColumns: `${lead ? '22px ' : ''}34px 1fr auto` } },
     lead || null, avatar({ icon: i.icon, title: i.title }, 'sm'),
-    h('div', { style: { minWidth: 0 } }, h('div', { class: 'i-title ellipsis' }, i.title), h('div', { class: 'i-file ellipsis' }, `${TPL_TYPE_LABEL[i.type] || ''}${i.reason ? ` · ${i.reason}` : ''}`)),
+    h('div', { style: { minWidth: 0 } }, h('div', { class: 'i-title ellipsis' }, i.title), h('div', { class: 'i-file ellipsis', title: sub || i.reason || '' }, sub || `${TPL_TYPE_LABEL[i.type] || ''}${i.reason ? ` · ${i.reason}` : ''}`)),
     extra || null);
+  const tick = (a, label) => h('input', { type: 'checkbox', checked: a.on, 'aria-label': label, onchange: (e) => { a.on = e.target.checked; sync(); } });
+  const badges = (a) => h('div', { class: 'row', style: { gap: '6px' } },
+    a.manual ? h('span', { class: 'badge plain warn', title: 'The author only allows downloads from their own page. Junction will help you get it.' }, 'manual download') : null,
+    a.releaseType && a.releaseType !== 'release' ? releaseBadge(a.releaseType) : null,
+    h('span', { class: 'muted small' }, a.versionNumber));
   const m = modal({
     title: `Review “${plan.template.name}”`,
     body: [
       h('p', { style: { margin: 0, lineHeight: 1.5, color: 'var(--muted)' } }, `For Minecraft ${plan.mcVersion} with ${loaderName}. Nothing is created or installed until you press the button. Junction picks the newest version of each project, preferring full releases.`),
-      group(`Will add (${adds.length})`, null, adds.map((a) => row(a, h('div', { class: 'row', style: { gap: '6px' } },
-        a.manual ? h('span', { class: 'badge plain warn', title: 'The author only allows downloads from their own page. Junction will help you get it.' }, 'manual download') : null,
-        a.releaseType && a.releaseType !== 'release' ? releaseBadge(a.releaseType) : null,
-        h('span', { class: 'muted small' }, a.versionNumber)),
-      h('input', { type: 'checkbox', checked: true, 'aria-label': `Install ${a.title}`, onchange: (e) => { a.on = e.target.checked; sync(); } })))),
-      group(`Not available for this version or loader (${missing.length})`, 'These have no matching version, so they are left out.', missing.map((i) => row(i))),
+      (plan.copies || []).length ? h('div', { class: 'notice' }, icon('info'), `Also copies: ${plan.copies.join(', ')}`) : null,
+      group(`Will add (${adds.length})`, null, adds.map((a) => row(a, badges(a), tick(a, `Install ${a.title}`)))),
+      group(`Will add, needed by other mods (${deps.length})`, 'The template does not have these, but the mods above need them to run.', deps.map((a) => row(a, badges(a), tick(a, `Install ${a.title}`), `Needed by ${a.neededBy.join(', ')}`))),
+      group(`Not available for this version or loader (${missing.length})`, 'These are left out. If a mod only misses a dependency its author may have listed by mistake, you can tick “Install anyway”.',
+        missing.map((i) => row(i, i.forceable ? h('label', { class: 'check small' }, tick(i, `Install ${i.title} anyway`), 'Install anyway') : null))),
       group(`Skipped (${skipped.length})`, null, skipped.map((i) => row(i))),
       !adds.length ? h('div', { class: 'notice warn' }, icon('alert'), 'None of the template\'s projects have a version for this Minecraft version and loader. Try another version.') : null,
     ],
     actions: [
       { label: 'Back', class: 'ghost' },
-      { label: 'Create and install', class: 'primary', icon: 'plus', onClick: async () => { await onConfirm(adds.filter((a) => a.on)); } },
+      { label: 'Create and install', class: 'primary', icon: 'plus', onClick: async () => { await onConfirm(chosenNow(), plan); } },
     ],
   });
   m.el.style.width = 'min(820px, 100%)';
   btn = m.el.querySelectorAll('.m-foot .btn')[1];
   sync();
+}
+
+/** After an install: one toast for the result, and a list of everything that could not be installed. */
+function templateResultReport(r, instName) {
+  const n = r.installed?.length || 0;
+  const probs = r.problems || [];
+  toast(`${n} item${n === 1 ? '' : 's'} added to ${instName}${probs.length ? `, ${probs.length} could not be installed` : ''}`, probs.length ? 'warn' : 'good', 7000);
+  if (r.blockedSession) return; // the manual-download window is about to open; the list stays in Activity
+  if (probs.length) {
+    modal({
+      title: `${probs.length} item${probs.length === 1 ? '' : 's'} could not be installed`,
+      body: [h('p', { style: { margin: 0, lineHeight: 1.5 } }, 'Everything else was installed. The list is also in Activity.'),
+        h('div', { class: 'list' }, probs.map((p) => h('div', { class: 'item', style: { gridTemplateColumns: '1fr' } },
+          h('div', { style: { minWidth: 0 } }, h('div', { class: 'i-title ellipsis' }, p.title), h('div', { class: 'i-file', style: { whiteSpace: 'normal' } }, p.why)))))],
+      actions: [{ label: 'OK', class: 'primary' }],
+    });
+  }
 }

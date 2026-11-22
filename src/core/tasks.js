@@ -98,7 +98,7 @@ class TaskManager extends EventEmitter {
       id, title, kind, icon, instanceId, heavy, createsInstance, status: 'running', cancelling: false,
       progress: null, step: '', error: null, started: Date.now(), finished: null,
       bytesDone: 0, bytesTotal: 0, plannedBytes: 0, sizeUnknown: false, filesDone: 0, filesTotal: 0, speed: 0, eta: null,
-      activeFiles: [], failedFiles: [], failedCount: 0,
+      activeFiles: [], failedFiles: [], failedCount: 0, problemCount: 0, problems: [],
     };
     const ctl = {
       ac: new AbortController(), pauseAc: new AbortController(), waiters: [], meter: new SpeedMeter(),
@@ -271,6 +271,7 @@ class TaskManager extends EventEmitter {
     if (status === 'cancelled') task.step = 'Cancelled';
     if (result && typeof result === 'object') {
       if (Array.isArray(result.failed)) task.failedCount = result.failed.length;
+      if (Array.isArray(result.problems)) { task.problemCount = result.problems.length; task.problems = result.problems.slice(0, 40).map((p) => ({ title: String(p.title || ''), why: String(p.why || '') })); } // finished, but some items didn't install
       if (result.instance?.id) task.instanceId = result.instance.id;
     }
     if (!task.failedCount && status === 'done') task.failedCount = task.failedFiles.length;
@@ -301,7 +302,7 @@ class TaskManager extends EventEmitter {
   record(task) {
     if (task.kind === 'other' && task.status === 'done') return; // quiet housekeeping (identify, check for updates…)
     const keep = ['id', 'title', 'kind', 'icon', 'instanceId', 'createsInstance', 'status', 'error', 'step', 'started', 'finished',
-      'bytesDone', 'filesDone', 'filesTotal', 'failedCount'];
+      'bytesDone', 'filesDone', 'filesTotal', 'failedCount', 'problemCount', 'problems'];
     const entry = Object.fromEntries(keep.map((k) => [k, task[k]]));
     this.history = [entry, ...this.history.filter((h) => h.id !== entry.id)].slice(0, this.historyLimit);
     this.saveHistory();
