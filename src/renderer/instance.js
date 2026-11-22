@@ -91,6 +91,7 @@ function instanceMenu(anchor, inst) {
   }
   items.push('-',
     { label: 'Copy worlds and settings from…', icon: 'copy', onClick: () => copyWorldsDialog(inst) },
+    { label: 'Add mods from a template…', icon: 'plus', onClick: () => addTemplateDialog(inst) },
     { label: 'Save as template…', icon: 'box', onClick: () => saveTemplateDialog(inst) },
     { label: 'Open mods folder', icon: 'folder', onClick: () => call('inst:openFolder', inst.id, 'mods') },
     { label: 'Duplicate', icon: 'copy', onClick: async () => { const c = await call('inst:duplicate', inst.id); toast(`Created ${c.name}`, 'good'); go('instance', { id: c.id }); } },

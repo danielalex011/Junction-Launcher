@@ -210,16 +210,18 @@ async function packReviewDialog(inst, target) {
   const body = h('div', { class: 'pack-review' }, loading('Reading both versions of the modpack…'));
   let goBtn;
   const running = state.running.get(inst.id) === 'running';
+  let dupes = []; // your own copies of mods the pack now ships: { rel, title, fromTemplate, on }
   const m = modal({
     title: `Update ${inst.pack.name}`,
     body: [body],
     actions: [
       { label: 'Cancel', class: 'ghost' },
       { label: 'Update', class: 'primary', icon: 'arrowUp', disabled: true, onClick: async () => {
-        const r = await call('pack:apply', inst.id, target.id, { action: 'update' });
+        const r = await call('pack:apply', inst.id, target.id, { action: 'update', removeCovered: dupes.filter((d) => d.on).map((d) => d.rel), keepCovered: dupes.filter((d) => !d.on).map((d) => d.rel) });
         if (r.cancelled) return true; // low disk space and the user chose Cancel: keep the window open
         await handleInstallResult({ ...r, installed: [] }, inst.id);
         if (r.removedCovered?.length) toast(`Removed your own copy of ${r.removedCovered.slice(0, 3).join(', ')}${r.removedCovered.length > 3 ? ` and ${r.removedCovered.length - 3} more` : ''}: the pack includes ${r.removedCovered.length === 1 ? 'it' : 'them'} now.`, 'info', 9000);
+        if (r.keptDuplicates?.length) toast(`Kept your own copy of ${r.keptDuplicates.slice(0, 3).join(', ')}${r.keptDuplicates.length > 3 ? ` and ${r.keptDuplicates.length - 3} more` : ''}: ${r.keptDuplicates.length === 1 ? 'it is' : 'they are'} in the pack too now.`, 'info', 9000);
         toast(`${inst.pack.name} is on ${target.versionNumber || 'the new version'}. Use "Undo update" if something breaks.`, 'good', 8000);
         go('instance', { id: inst.id });
       } },
@@ -243,6 +245,14 @@ async function packReviewDialog(inst, target) {
   const group = (title, cls, rows, render, open = true) => (rows.length ? h('details', { class: 'rv-group', open },
     h('summary', null, h('span', { class: `rv-dot ${cls}` }), `${title}`, h('span', { class: 'count' }, String(rows.length))),
     h('div', { class: 'list rv-list' }, rows.map(render))) : null);
+  dupes = p.covered.map((c) => ({ ...c, on: true }));
+  const dupeGroup = dupes.length ? h('details', { class: 'rv-group', open: true },
+    h('summary', null, h('span', { class: 'rv-dot del' }), 'Your copies the pack now includes', h('span', { class: 'count' }, String(dupes.length))),
+    h('div', { class: 'hint', style: { margin: '0', padding: '8px 12px 6px' } }, "The pack ships these now. Ticked ones are removed so the pack's copy is used; untick one to keep yours (two copies of the same mod can stop the game from starting)."),
+    h('div', { class: 'list rv-list' }, dupes.map((d) => h('label', { class: 'item rv-row', style: { gridTemplateColumns: '22px minmax(0, 1fr) auto', cursor: 'pointer' } },
+      h('input', { type: 'checkbox', checked: true, 'aria-label': `Remove your copy of ${d.title}`, onchange: (e) => { d.on = e.target.checked; } }),
+      h('div', { style: { minWidth: 0 } }, h('div', { class: 'i-title ellipsis', title: d.title }, d.title), h('div', { class: 'i-file ellipsis' }, d.fromTemplate ? `Added from the template “${d.fromTemplate}”` : 'Added by you')),
+      h('span', { class: 'muted small' }, 'Remove my copy'))))) : null;
   const cfg = [...p.config.changed.map((r) => ['Changed', r]), ...p.config.added.map((r) => ['New', r]), ...p.config.removed.map((r) => ['No longer in the pack', r])];
   const gameChange = p.to.mcVersion !== p.from.mcVersion || p.to.loader?.type !== p.from.loader?.type || p.to.loader?.version !== p.from.loader?.version;
   body.replaceChildren(
@@ -255,6 +265,7 @@ async function packReviewDialog(inst, target) {
     group('Updated', 'upd', p.updated, (r) => modRow(r, 'upd')),
     group('Added by the pack', 'add', p.added, (r) => modRow(r, 'add')),
     group('Removed by the pack', 'del', p.removed, (r) => modRow(r, 'del')),
+    dupeGroup,
     cfg.length ? h('details', { class: 'rv-group' },
       h('summary', null, h('span', { class: 'rv-dot cfg' }), 'Config files', h('span', { class: 'count' }, String(cfg.length))),
       h('div', { class: 'rv-cfg' }, cfg.map(([k, r]) => h('div', null, h('span', { class: `badge plain ${k === 'No longer in the pack' ? 'bad' : k === 'New' ? 'good' : 'warn'}` }, k), h('code', null, r))))) : null,
@@ -264,7 +275,6 @@ async function packReviewDialog(inst, target) {
       ...(p.replacedChanged || []).map((c) => h('div', { class: 'warn' }, icon('alert', 14), c.replaced
         ? `${c.title}: your changed file is replaced with the pack's version.`
         : `${c.title}: your changed file is removed, because ${p.to.versionName} no longer includes it.`)),
-      p.covered.length ? h('div', { class: 'warn' }, icon('alert', 14), `The pack now includes ${p.covered.map((c) => c.title).slice(0, 4).join(', ')}${p.covered.length > 4 ? ` and ${p.covered.length - 4} more` : ''}, so your own cop${p.covered.length === 1 ? 'y is' : 'ies are'} removed.`) : null,
       h('div', null, icon('info', 14), 'Mods, resource packs, shaders and configs are backed up first, so you can undo this.')),
     running ? h('div', { class: 'notice warn', style: { margin: 0 } }, icon('alert'), 'Minecraft is running from this instance. Close the game first.') : null);
 }

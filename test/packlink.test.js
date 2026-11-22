@@ -265,3 +265,30 @@ test('Side for CurseForge mods: one bulk Modrinth hash lookup, misses remembered
   assert.deepEqual(await content.refreshSides(inst.id), { updated: 0 });
   assert.deepEqual(hits, { files: 1, projects: 1 }, 'cached: nothing asked again');
 });
+
+test('pack update: template mods the pack now includes are offered for removal, and unticked ones stay', async () => {
+  const { instances, packs, id, gd } = await setup();
+  const fromTemplate = { id: 'fav', name: 'Favourites' };
+  // Added from a template: one the pack ships under the same project, one the pack ships under another site's ID (found by its name).
+  fs.writeFileSync(path.join(gd, 'mods', 'distanthorizons-2.2.1.jar'), fabricJar('distanthorizons', 'Distant Horizons', '2.2.1'));
+  fs.writeFileSync(path.join(gd, 'mods', 'bettercaves-cf.jar'), fabricJar('bettercavescf', 'Better Caves', '1.0'));
+  fs.writeFileSync(path.join(gd, 'mods', 'mousetweaks-3.1.jar'), fabricJar('mousetweaks', 'Mouse Tweaks', '3.1'));
+  await instances.withIndex(id, (idx) => {
+    idx.files['mods/distanthorizons-2.2.1.jar'] = { source: 'modrinth', projectId: 'DH', title: 'Distant Horizons', fromTemplate };
+    idx.files['mods/bettercaves-cf.jar'] = { source: 'curseforge', projectId: '999', title: 'Better Caves', fromTemplate };
+    idx.files['mods/mousetweaks-3.1.jar'] = { source: 'local', title: 'Mouse Tweaks', fromTemplate }; // the pack does not ship this one
+  });
+  await packs.label(id);
+  const p = await packs.preview(id, 'lan420');
+  const covered = p.covered.map((c) => [c.title, c.fromTemplate]).sort();
+  assert.deepEqual(covered, [['Better Caves', 'Favourites'], ['Distant Horizons', 'Favourites']], 'only what the pack now includes, and which template it came from');
+  assert.equal(p.keptAdditions, 1, 'Mouse Tweaks stays');
+  // The user keeps their Better Caves and lets the Distant Horizons duplicate go.
+  const r = await packs.applyVersion(id, 'lan420', { removeCovered: ['mods/distanthorizons-2.2.1.jar'], keepCovered: ['mods/bettercaves-cf.jar'] });
+  assert.deepEqual(r.removedCovered, ['Distant Horizons']);
+  assert.deepEqual(r.keptDuplicates, ['Better Caves']);
+  const mods = fs.readdirSync(path.join(gd, 'mods'));
+  assert.ok(!mods.includes('distanthorizons-2.2.1.jar'), 'the ticked duplicate is gone');
+  assert.ok(mods.includes('bettercaves-cf.jar'), 'the unticked one stays');
+  assert.ok(mods.includes('mousetweaks-3.1.jar'));
+});

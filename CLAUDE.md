@@ -32,7 +32,7 @@ src/core/            engine — plain Node, must NEVER require('electron') (keep
   minecraft/         versions (inheritsFrom merge), install (libs/natives/assets), java (Mojang runtimes), launch args
   loaders/           Fabric/Quilt (meta JSON) and Forge/NeoForge (headless official installer)
   sources/           modrinth.js, curseforge.js (normalised shapes), index.js (merged search), fingerprint.js
-  content/           manager.js (install/deps/dedupe/updates/undo), modpacks.js, packlink.js (linked packs: labels, compare, pack updates, backups), export.js, importer.js, blocked.js, metadata.js
+  content/           manager.js (install/deps/dedupe/updates/undo), modpacks.js, packlink.js (linked packs: labels, compare, pack updates, backups), templates.js (instance templates: save, plan/review matching, apply; also on top of a modpack), export.js, importer.js, blocked.js, metadata.js
   auth/accounts.js   Microsoft device-code → Xbox → XSTS → Minecraft; offline accounts
   skins.js, png.js   wardrobe + history (data/wardrobe), strict PNG skin checks, Mojang skin/cape/name-lookup calls (token only to api.minecraftservices.com); src/renderer/skins.js is the page, vendor/ holds the bundled skinview3d
 src/main/main.js     Electron main: IPC handlers (`handle('area:action', fn)`), tasks, protocol, windows

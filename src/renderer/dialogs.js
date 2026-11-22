@@ -100,6 +100,8 @@ async function newInstanceDialog(preset = {}) {
   let templates = [];
   let templateId = null; // null = start blank
   let templateName = '';
+  let startMode = 'blank'; // 'blank' | 'template' | 'pack' (a modpack plus a template)
+  let pickedPack = null;
   const nameInput = h('input', { type: 'text', placeholder: 'Instance name', oninput: () => { nameTouched = true; } });
   const autoName = () => { if (!nameTouched) nameInput.value = templateId ? templateName : `${LOADER[loader]} ${mc}`; };
   const mcSelectWrap = h('div');
@@ -142,16 +144,19 @@ async function newInstanceDialog(preset = {}) {
     },
   }), 'Show snapshots');
 
-  // Start from: Blank, or one of the saved templates (the Minecraft version and loader are still picked below)
-  const templateWrap = h('div');
+  // Start from: Blank, one of the saved templates, or a modpack plus a template (the modpack decides Minecraft version and loader)
+  const templateWrap = h('div', { style: { display: 'flex', flexDirection: 'column', gap: '14px', marginTop: '10px' } });
+  const gameFields = h('div', { style: { display: 'contents' } });
   const startSeg = h('div', { class: 'seg' },
-    h('button', { type: 'button', class: 'on', onclick: (e) => setStart(e.currentTarget, false) }, 'Blank'),
-    h('button', { type: 'button', onclick: (e) => setStart(e.currentTarget, true) }, 'Template'));
+    h('button', { type: 'button', class: 'on', onclick: (e) => setStart(e.currentTarget, 'blank') }, 'Blank'),
+    h('button', { type: 'button', onclick: (e) => setStart(e.currentTarget, 'template') }, 'Template'),
+    h('button', { type: 'button', onclick: (e) => setStart(e.currentTarget, 'pack') }, 'Modpack + template'));
   /** Start with the template's own Minecraft version, loader and name. All of them can still be changed. */
   function useTemplateDefaults() {
     const t = templates.find((x) => x.id === templateId);
     if (!t) return;
     templateName = t.name;
+    if (startMode === 'pack') return; // the modpack decides
     if (t.mcVersion) { if (!versions.some((v) => v.id === t.mcVersion)) versions = [{ id: t.mcVersion, type: 'release' }, ...versions]; mc = t.mcVersion; renderMcSelect(); }
     const k = t.loader?.type;
     if (k && LOADER[k]) { loader = k; seg.querySelectorAll('button').forEach((b) => b.classList.toggle('on', b.textContent === LOADER[k])); }
@@ -159,18 +164,37 @@ async function newInstanceDialog(preset = {}) {
     autoName();
     loadLoaderVersions();
   }
-  function setStart(btn, useTemplate) {
-    startSeg.querySelectorAll('button').forEach((b) => b.classList.toggle('on', b === btn));
-    if (!useTemplate) { templateId = null; templateWrap.replaceChildren(); return; }
+  function packPickRow() {
+    const label = h('span', { class: 'grow ellipsis' }, pickedPack ? pickedPack.title : 'No modpack chosen yet');
+    return h('div', { class: 'row', style: { gap: '10px' } }, pickedPack ? avatar({ icon: pickedPack.icon, title: pickedPack.title }, 'sm') : null, label,
+      h('button', { class: 'btn sm', type: 'button', onclick: async () => {
+        const p = await pickModpackDialog();
+        if (p) { pickedPack = p; drawStart(); }
+      } }, icon('pack', 14), pickedPack ? 'Change modpack' : 'Choose modpack…'));
+  }
+  function drawStart() {
+    gameFields.style.display = startMode === 'pack' ? 'none' : 'contents';
+    if (startMode === 'blank') { templateWrap.replaceChildren(); return; }
     if (!templates.length) {
-      templateId = null;
       templateWrap.replaceChildren(h('div', { class: 'hint' }, 'No templates yet. Open an instance, then ⋯ → Save as template.'));
       return;
     }
+    const pick = select(templates.map((t) => ({ value: t.id, label: `${t.name} (${tplCountText(t.counts)})` })), templateId, (v) => { templateId = v; useTemplateDefaults(); });
+    templateWrap.replaceChildren(
+      startMode === 'pack' ? h('div', { class: 'field' }, h('span', { class: 'small muted', style: { fontWeight: 600 } }, 'Modpack'), packPickRow()) : null,
+      startMode === 'pack' ? h('div', { class: 'field' }, h('span', { class: 'small muted', style: { fontWeight: 600 } }, 'Template'), pick) : pick,
+      h('div', { class: 'hint' }, startMode === 'pack'
+        ? 'The modpack is installed as usual and decides the Minecraft version and loader. Junction then shows what the template would add, leaving out what the pack already has, and installs nothing until you confirm. Your additions are kept apart from the pack, so pack updates never touch them.'
+        : 'Pick the Minecraft version and loader below. Junction looks up the newest matching version of each project and shows you a list before installing anything.'));
+  }
+  function setStart(btn, mode) {
+    startSeg.querySelectorAll('button').forEach((b) => b.classList.toggle('on', b === btn));
+    startMode = mode;
+    if (mode === 'blank') { templateId = null; drawStart(); return; }
+    if (!templates.length) { templateId = null; drawStart(); return; }
     templateId = templateId || templates[0].id;
     useTemplateDefaults();
-    templateWrap.replaceChildren(select(templates.map((t) => ({ value: t.id, label: `${t.name} (${tplCountText(t.counts)})` })), templateId, (v) => { templateId = v; useTemplateDefaults(); }),
-      h('div', { class: 'hint' }, 'Pick the Minecraft version and loader below. Junction looks up the newest matching version of each project and shows you a list before installing anything.'));
+    drawStart();
   }
   call('template:list').then((l) => { templates = l; }).catch(() => {});
 
@@ -181,18 +205,29 @@ async function newInstanceDialog(preset = {}) {
     title: 'New instance',
     body: [
       h('div', { class: 'field' }, h('span', { class: 'small muted', style: { fontWeight: 600 } }, 'Start from'), startSeg, templateWrap),
-      h('label', { class: 'field' }, 'Name', nameInput),
-      h('div', { class: 'field' }, h('span', { class: 'small muted', style: { fontWeight: 600 } }, 'Mod loader'), seg),
-      h('div', { class: 'form-grid' },
-        h('label', { class: 'field' }, h('span', { class: 'row' }, h('span', { class: 'grow' }, 'Minecraft version'), snapToggle), mcSelectWrap),
-        h('label', { class: 'field' }, 'Loader version', loaderVerWrap)),
-      status,
+      (() => {
+        gameFields.append(
+          h('label', { class: 'field' }, 'Name', nameInput),
+          h('div', { class: 'field' }, h('span', { class: 'small muted', style: { fontWeight: 600 } }, 'Mod loader'), seg),
+          h('div', { class: 'form-grid' },
+            h('label', { class: 'field' }, h('span', { class: 'row' }, h('span', { class: 'grow' }, 'Minecraft version'), snapToggle), mcSelectWrap),
+            h('label', { class: 'field' }, 'Loader version', loaderVerWrap)),
+          status);
+        return gameFields;
+      })(),
       h('div', { class: 'hint' }, 'Tip: you can also start from a modpack in Browse → Modpacks, then add or remove mods freely.'),
     ],
     actions: [
       { label: 'Cancel', class: 'ghost' },
       {
         label: 'Create', class: 'primary', icon: 'plus', onClick: async () => {
+          if (startMode === 'pack') {
+            if (!pickedPack) throw new Error('Choose a modpack first.');
+            if (!templateId) throw new Error('Choose a template first.');
+            const [pack, tid] = [pickedPack, templateId];
+            setTimeout(() => packTemplateFlow(pack, tid), 0); // the window closes; the install and the review carry on from here
+            return;
+          }
           if (loader !== 'vanilla' && !loaderVersion) throw new Error('Pick a loader version first');
           const loaderSpec = loader === 'vanilla' ? { type: 'vanilla' } : { type: loader, version: loaderVersion };
           if (templateId) {
@@ -201,15 +236,9 @@ async function newInstanceDialog(preset = {}) {
             const name = nameInput.value.trim();
             setTimeout(() => templateReviewDialog(plan, async (chosen) => {
               const made = await call('inst:create', { name, mcVersion: mc, loader: loaderSpec });
-              toast(`Created ${made.name}. Adding ${chosen.length} item${chosen.length === 1 ? '' : 's'}: follow it in Activity.`, 'good');
               go('instance', { id: made.id });
-              try {
-                const r = await call('template:apply', made.id, chosen, { confirmed: true, templateId, copyFiles: (plan.copies || []).length > 0 });
-                templateResultReport(r, made.name);
-                if (r.blockedSession) await handleInstallResult({ blockedSession: r.blockedSession }, made.id);
-                if (state.view === 'instance' && state.params.id === made.id) go('instance', state.params); // the page was drawn before the files arrived
-              } catch (e) { toast(e.message, 'error'); }
-            }), 0);
+              templateInstall(made, plan, chosen, templateId);
+            }, { verb: 'Create and install', empty: 'Create instance' }), 0);
             return;
           }
           const inst = await call('inst:create', { name: nameInput.value.trim(), mcVersion: mc, loader: loaderSpec });

@@ -473,7 +473,7 @@ function registerIpc() {
     const p = inst.pack;
     if (!(await roomForPack(() => (['modrinth', 'curseforge'].includes(p?.source) ? modpacks.estimateFromSource({ source: p.source, projectId: p.projectId, versionId }) : null)))) return { cancelled: true };
     const title = action === 'reinstall' ? `Reinstalling ${inst.pack.name}` : `Updating ${inst.name}`;
-    const r = await ctx.tasks.run(title, (t) => packlink.applyVersion(id, versionId, { action, keepAdditions: opts.keepAdditions !== false, keepDisabled: action === 'update', report: t.update }), { instanceId: id, kind: 'update', icon: 'pack', heavy: true });
+    const r = await ctx.tasks.run(title, (t) => packlink.applyVersion(id, versionId, { action, keepAdditions: opts.keepAdditions !== false, keepDisabled: action === 'update', removeCovered: Array.isArray(opts.removeCovered) ? opts.removeCovered.map(String) : [], keepCovered: Array.isArray(opts.keepCovered) ? opts.keepCovered.map(String) : [], report: t.update }), { instanceId: id, kind: 'update', icon: 'pack', heavy: true });
     packInfoCache.clear();
     packlink.checkUpdate(id).then((u) => home.recordPack(id, u)).catch(() => {});
     return { ...r, blockedSession: startBlockedSession(id, r.blocked) };
@@ -601,10 +601,10 @@ function registerIpc() {
   handle('template:save', async (instId, opts) => templates.save(instId, opts || {}));
   handle('template:rename', async (id, name) => templates.rename(id, name));
   handle('template:delete', async (id) => templates.remove(id));
-  handle('template:plan', async (id, target) => templates.plan(id, target || {}));
+  handle('template:plan', async (id, target) => templates.plan(id, target || {})); // target: { mcVersion, loader } for a new instance, or { instanceId } for an existing one
   handle('template:apply', async (instId, chosen, opts = {}) => {
     const inst = await instances.get(instId);
-    const r = await ctx.tasks.run(`Adding template content to ${inst.name}`, (t) => templates.apply(instId, chosen, { confirmed: opts.confirmed === true, templateId: opts.templateId || null, copyFiles: opts.copyFiles === true, report: t.update }), { instanceId: instId, kind: 'mod', icon: 'mod', heavy: true });
+    const r = await ctx.tasks.run(`Adding template to ${inst.name}`, (t) => templates.apply(instId, chosen, { confirmed: opts.confirmed === true, templateId: opts.templateId || null, copyFiles: opts.copyFiles === true, report: t.update }), { instanceId: instId, kind: 'mod', icon: 'mod', heavy: true });
     return { ...r, blockedSession: startBlockedSession(instId, r.blocked) };
   });
 

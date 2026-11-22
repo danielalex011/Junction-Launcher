@@ -222,3 +222,196 @@ test('apply: Cancel still stops everything instead of being listed as a problem'
   let n = 0;
   await assert.rejects(templates.apply(target.id, plan.items.filter((i) => i.status === 'add'), { confirmed: true, report: () => { if (++n > 2) throw new CancelledError(); } }), (e) => e.name === 'CancelledError');
 });
+
+// ---------------------------------------------------------------- part 2: a template on top of a modpack
+const { findConflicts, knownModOf } = require('../src/core/content/templates');
+
+const PACK_TITLES = { ALP: 'Alpha Mod', LIB: 'Library Mod', BET: 'Beta Mod', SOD: 'Sodium', DUP: 'Dup Mod', MID: 'Mid Mod', TWN: 'Twin Mod', PRV: 'Prov Dependent', PROV: 'Provider', MINE: 'My Pick', EMB: 'Embeddium' };
+
+/**
+ * Modrinth mock for a Fabric template going onto a NeoForge pack. ALP, SOD and the rest have a fabric and a neoforge file;
+ * BET is fabric-only. ALP needs LIB; PRV needs PROV (which the pack has).
+ */
+function packRoutes() {
+  const blobs = {};
+  const dep = (id) => ({ project_id: id, version_id: null, file_name: null, dependency_type: 'required' });
+  const mkv = (project, loader, deps = []) => {
+    const id = `${project}-${loader[0]}`;
+    const buf = fabricJar(project.toLowerCase(), PACK_TITLES[project], '1.0.0');
+    const url = `https://cdn.modrinth.com/data/${project}/${id}.jar`;
+    blobs[url] = buf;
+    return { id, project_id: project, name: '1.0.0', version_number: '1.0.0', game_versions: ['1.21'], loaders: [loader], version_type: 'release', date_published: '2026-01-01T00:00:00Z',
+      files: [{ url, filename: `${project.toLowerCase()}-${loader}.jar`, hashes: { sha1: sha1(buf), sha512: sha512(buf) }, size: buf.length, primary: true }], dependencies: deps };
+  };
+  const both = (p, deps) => [mkv(p, 'fabric', deps), mkv(p, 'neoforge', deps)];
+  const versions = {
+    ALP: both('ALP', [dep('LIB')]), LIB: both('LIB'), BET: [mkv('BET', 'fabric')], SOD: both('SOD'), DUP: both('DUP'), MID: both('MID'), TWN: both('TWN'),
+    PRV: both('PRV', [dep('PROV')]), PROV: both('PROV'), MINE: both('MINE'), EMB: both('EMB'),
+  };
+  const ids = Object.keys(versions).join('|');
+  return [
+    ['GET', new RegExp(`^${API}/project/(${ids})/version`), (u) => ({ json: versions[u.match(/project\/(\w+)\/version/)[1]] })],
+    ['GET', new RegExp(`^${API}/project/(${ids})$`), (u) => { const id = u.split('/').pop(); return { json: { id, slug: id.toLowerCase(), title: PACK_TITLES[id], project_type: 'mod' } }; }],
+    ['GET', new RegExp(`^${API}/version/([\\w-]+)$`), (u) => ({ json: Object.values(versions).flat().find((v) => v.id === u.split('/').pop()) })],
+    ['GET', /cdn\.modrinth\.com/, (u) => (blobs[u] ? { body: blobs[u] } : { status: 404, body: 'gone' })],
+  ];
+}
+
+/** A Fabric template (ALP, BET, SOD, DUP, MID, TWN, PRV, MINE + config) and a linked NeoForge pack that already has some of it. */
+async function packSetup({ packConfig = {} } = {}) {
+  const ctx = await makeCtx(packRoutes());
+  const instances = new Instances(ctx);
+  const content = new ContentManager(ctx, instances, createSources(ctx));
+  const templates = new Templates(ctx, instances, content);
+  const put = async (instId, file, jar, entry) => {
+    const dir = path.join(instances.gameDir(instId), 'mods');
+    await fs.promises.mkdir(dir, { recursive: true });
+    await fs.promises.writeFile(path.join(dir, file), jar);
+    return [`mods/${file}`, entry];
+  };
+  const mr = (id, extra = {}) => ({ source: 'modrinth', projectId: id, title: PACK_TITLES[id], ...extra });
+
+  const src = await instances.create({ name: 'Fabric favourites', mcVersion: '1.21', loader: { type: 'fabric', version: '0.16.0' } });
+  const srcEntries = [];
+  for (const id of ['ALP', 'BET', 'SOD', 'DUP', 'TWN', 'PRV', 'MINE']) srcEntries.push(await put(src.id, `${id.toLowerCase()}.jar`, fabricJar(id.toLowerCase(), PACK_TITLES[id]), mr(id)));
+  srcEntries.push(await put(src.id, 'mid.jar', fabricJar('midmod', 'Mid Mod'), mr('MID'))); // the jar's mod id is what matches
+  await instances.withIndex(src.id, (idx) => { for (const [k, v] of srcEntries) idx.files[k] = v; });
+  const sg = instances.gameDir(src.id);
+  await fs.promises.mkdir(path.join(sg, 'config'), { recursive: true });
+  await fs.promises.writeFile(path.join(sg, 'config', 'a.toml'), 'a=1');
+  await fs.promises.writeFile(path.join(sg, 'config', 'b.toml'), 'b=1');
+  await fs.promises.writeFile(path.join(sg, 'options.txt'), 'fov:90');
+  const t = await templates.save(src.id, { name: 'Favourites', include: { configs: true, options: true } });
+
+  const pack = await instances.create({ name: 'Big Pack', mcVersion: '1.21', loader: { type: 'neoforge', version: '21.0.1' } });
+  await instances.update(pack.id, { pack: { source: 'modrinth', projectId: 'PACKP', name: 'Big Pack', versionId: 'pv1', versionName: '1.0', url: 'https://modrinth.com/modpack/bigpack' } });
+  const packEntries = [
+    await put(pack.id, 'dup.jar', fabricJar('dup', 'Dup Mod'), mr('DUP', { fromPack: true })), // same project
+    await put(pack.id, 'prov.jar', fabricJar('prov', 'Provider'), mr('PROV', { fromPack: true })), // what PRV needs
+    await put(pack.id, 'emb.jar', fabricJar('embeddium', 'Embeddium'), mr('EMB', { fromPack: true })), // clashes with Sodium
+    await put(pack.id, 'other.jar', fabricJar('midmod', 'Totally Different Name'), { source: 'pack', title: 'Totally Different Name', fromPack: true }), // same mod id as MID
+    await put(pack.id, 'twin.jar', fabricJar('twincf', 'Twin Mod'), { source: 'curseforge', projectId: '500', title: 'Twin Mod', fromPack: true }), // same mod from the other site
+    await put(pack.id, 'mine.jar', fabricJar('mine', 'My Pick'), mr('MINE')), // added by the player
+  ];
+  await instances.withIndex(pack.id, (idx) => { for (const [k, v] of packEntries) idx.files[k] = v; });
+  const pg = instances.gameDir(pack.id);
+  await fs.promises.mkdir(path.join(pg, 'config'), { recursive: true });
+  await fs.promises.writeFile(path.join(pg, 'config', 'a.toml'), 'pack=1');
+  for (const [rel, text] of Object.entries(packConfig)) await fs.promises.writeFile(path.join(pg, rel), text);
+  return { ctx, instances, content, templates, t, pack, pg };
+}
+
+test('pack + template: mods the pack already has are "already in the pack", by project (either site) and by the mod id inside the jar', async () => {
+  const { templates, t, pack } = await packSetup();
+  const plan = await templates.plan(t.id, { instanceId: pack.id });
+  const by = (title) => plan.items.find((i) => i.title === title);
+  assert.equal(plan.instance.linked, true);
+  assert.equal(plan.loader.type, 'neoforge', 'the pack decides the loader');
+  for (const [title, why] of [['Dup Mod', 'same project'], ['Twin Mod', 'same mod from the other site'], ['Mid Mod', 'same mod id in the jar, different name and project']]) {
+    assert.equal(by(title).status, 'have', title + ': ' + why);
+    assert.equal(by(title).have, 'pack', title);
+    assert.equal(by(title).reason, 'Already in the pack');
+    assert.equal(by(title).versionId, undefined, 'nothing was looked up for it');
+  }
+  assert.equal(by('My Pick').status, 'have');
+  assert.equal(by('My Pick').have, 'instance', 'your own addition is "already installed", not the pack');
+  assert.equal(by('My Pick').reason, 'Already installed');
+});
+
+test('pack + template: a dependency the pack already provides is satisfied; one it lacks is added', async () => {
+  const { templates, t, pack } = await packSetup();
+  const plan = await templates.plan(t.id, { instanceId: pack.id });
+  const by = (title) => plan.items.find((i) => i.title === title);
+  assert.equal(by('Prov Dependent').status, 'add', 'it needs Provider, which the pack has');
+  assert.equal(plan.items.find((i) => i.title === 'Provider'), undefined, 'the pack\'s mod is not listed or added again');
+  assert.equal(by('Library Mod').status, 'add');
+  assert.equal(by('Library Mod').dependency, true);
+  assert.deepEqual(by('Library Mod').neededBy, ['Alpha Mod']);
+});
+
+test('pack + template: another loader uses the same project for the pack\'s loader, or says "Not available for NeoForge"', async () => {
+  const { templates, t, pack } = await packSetup();
+  const plan = await templates.plan(t.id, { instanceId: pack.id });
+  const by = (title) => plan.items.find((i) => i.title === title);
+  assert.equal(by('Alpha Mod').status, 'add');
+  assert.equal(by('Alpha Mod').versionId, 'ALP-n', 'the NeoForge file of the same project, not the Fabric one');
+  assert.equal(by('Beta Mod').status, 'unavailable');
+  assert.match(by('Beta Mod').reason, /^Not available for NeoForge/);
+  assert.equal(by('Beta Mod').versionId, undefined, 'no other file or mod is picked in its place');
+  const titles = plan.items.map((i) => i.title).sort();
+  assert.deepEqual(titles, ['Alpha Mod', 'Beta Mod', 'Dup Mod', 'Library Mod', 'Mid Mod', 'My Pick', 'Prov Dependent', 'Sodium', 'Twin Mod'], 'nothing that is not in the template or needed by it');
+});
+
+test('pack + template: known conflicts stay in the list with the reason, and are not picked for you', async () => {
+  const { templates, t, pack } = await packSetup();
+  const plan = await templates.plan(t.id, { instanceId: pack.id });
+  const sodium = plan.items.find((i) => i.title === 'Sodium');
+  assert.equal(sodium.status, 'conflict');
+  assert.equal(sodium.versionId, 'SOD-n', 'a version was found, so ticking it is possible');
+  assert.match(sodium.reason, /Embeddium/);
+  assert.match(sodium.reason, /the pack already has/);
+  // The same template on an instance without Embeddium has no conflict.
+  const { instances, templates: tpl, t: t2 } = await packSetup();
+  const clean = await instances.create({ name: 'Clean', mcVersion: '1.21', loader: { type: 'neoforge', version: '21.0.1' } });
+  assert.equal((await tpl.plan(t2.id, { instanceId: clean.id })).items.find((i) => i.title === 'Sodium').status, 'add');
+});
+
+test('the built-in conflict list: Sodium / Embeddium / Rubidium, OptiFine next to Sodium or Iris, and no false alarms', () => {
+  const mods = (...names) => names.map((title) => ({ title }));
+  assert.deepEqual(findConflicts({ title: 'Sodium' }, mods('Embeddium', 'Lithium')).map((c) => c.label), ['Embeddium']);
+  assert.deepEqual(findConflicts({ title: 'Embeddium' }, mods('Rubidium')).map((c) => c.label), ['Rubidium']);
+  assert.deepEqual(findConflicts({ title: 'Sodium' }, mods('Rubidium')).map((c) => c.label), ['Rubidium']);
+  assert.deepEqual(findConflicts({ title: 'OptiFine' }, mods('Sodium', 'Iris Shaders')).map((c) => c.label).sort(), ['Iris', 'Sodium']);
+  assert.deepEqual(findConflicts({ title: 'Iris Shaders' }, mods('OptiFine')).map((c) => c.label), ['OptiFine']);
+  assert.deepEqual(findConflicts({ title: 'Sodium' }, [{ title: 'Whatever', modId: 'embeddium' }]).map((c) => c.label), ['Embeddium'], 'the mod id counts as well as the name');
+  assert.deepEqual(findConflicts({ title: 'Sodium' }, mods('Sodium Extra', 'Iris Shaders', 'Lithium')), [], 'Sodium Extra is not Sodium; Sodium and Iris go together');
+  assert.deepEqual(findConflicts({ title: 'Lithium' }, mods('Sodium')), []);
+  assert.equal(knownModOf({ title: 'Sodium Extra' }), null);
+});
+
+test('pack + template: the pack\'s own config files are never overwritten; only missing ones are copied', async () => {
+  const { templates, instances, t, pack, pg } = await packSetup({ packConfig: { 'options.txt': 'fov:50' } });
+  const plan = await templates.plan(t.id, { instanceId: pack.id });
+  assert.deepEqual(plan.kept, ['config/a.toml', 'options.txt'], 'shown in the review as kept');
+  assert.equal(plan.copies.length, 1);
+  assert.match(plan.copies[0], /^config folder \(1 file/);
+  const r = await templates.apply(pack.id, [], { confirmed: true, templateId: t.id, copyFiles: true });
+  assert.equal(fs.readFileSync(path.join(pg, 'config', 'a.toml'), 'utf8'), 'pack=1', "the pack's file stays");
+  assert.equal(fs.readFileSync(path.join(pg, 'options.txt'), 'utf8'), 'fov:50', 'so does options.txt');
+  assert.equal(fs.readFileSync(path.join(pg, 'config', 'b.toml'), 'utf8'), 'b=1', 'a file the pack does not have is copied');
+  assert.deepEqual(r.copied, ['config folder']);
+  assert.deepEqual(r.kept, ['config/a.toml', 'options.txt']);
+  // Running it again changes nothing.
+  const again = await templates.apply(pack.id, [], { confirmed: true, templateId: t.id, copyFiles: true });
+  assert.deepEqual(again.copied, []);
+  assert.equal((await instances.get(pack.id)).pack.projectId, 'PACKP');
+});
+
+test('pack + template: the template\'s mods land in "Added by you", the pack\'s files are untouched', async () => {
+  const { templates, instances, t, pack } = await packSetup();
+  const plan = await templates.plan(t.id, { instanceId: pack.id });
+  const chosen = plan.items.filter((i) => i.status === 'add');
+  assert.deepEqual(chosen.map((i) => i.title).sort(), ['Alpha Mod', 'Library Mod', 'Prov Dependent']);
+  await assert.rejects(templates.apply(pack.id, chosen), /confirm/, 'nothing installs unconfirmed');
+  const r = await templates.apply(pack.id, chosen, { confirmed: true, templateId: t.id });
+  assert.equal(r.problems.length, 0);
+  const mods = await instances.listContent(pack.id, 'mod');
+  for (const title of ['Alpha Mod', 'Library Mod', 'Prov Dependent']) assert.equal(mods.find((m) => m.title === title).fromPack, false, `${title} is yours, not the pack's`);
+  assert.equal(mods.find((m) => m.title === 'Dup Mod').fromPack, true);
+  assert.equal(mods.find((m) => m.title === 'Embeddium').fromPack, true);
+  assert.ok(!mods.some((m) => m.title === 'Sodium'), 'the conflicting mod was not ticked, so it is not installed');
+  const idx = await instances.readIndex(pack.id);
+  assert.equal(idx.files['mods/alp-neoforge.jar'].fromTemplate.name, 'Favourites', 'marked as coming from the template');
+});
+
+test('add a template to an existing instance that is not a modpack: same review, "already installed"', async () => {
+  const { templates, instances, t } = await packSetup();
+  const plain = await instances.create({ name: 'Plain', mcVersion: '1.21', loader: { type: 'neoforge', version: '21.0.1' } });
+  await fs.promises.mkdir(path.join(instances.gameDir(plain.id), 'mods'), { recursive: true });
+  await fs.promises.writeFile(path.join(instances.gameDir(plain.id), 'mods', 'dup.jar'), fabricJar('dup', 'Dup Mod'));
+  await instances.withIndex(plain.id, (idx) => { idx.files['mods/dup.jar'] = { source: 'modrinth', projectId: 'DUP', title: 'Dup Mod' }; });
+  const plan = await templates.plan(t.id, { instanceId: plain.id });
+  assert.equal(plan.instance.linked, false);
+  const dup = plan.items.find((i) => i.title === 'Dup Mod');
+  assert.deepEqual([dup.status, dup.have, dup.reason], ['have', 'instance', 'Already installed']);
+});

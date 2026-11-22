@@ -60,9 +60,23 @@ class Instances {
     return j;
   }
 
-  async create({ name, mcVersion, loader = { type: 'vanilla' }, icon = null, pack = null }) {
+  /** `name`, or `name (2)`, `name (3)`... when an instance with that name exists (ignoring case). Existing instances are never renamed. */
+  async uniqueName(name) {
+    const taken = new Set((await this.list()).map((i) => String(i.name || '').trim().toLowerCase()));
+    if (!taken.has(name.toLowerCase())) return name;
+    for (let n = 2; ; n++) if (!taken.has(`${name} (${n})`.toLowerCase())) return `${name} (${n})`;
+  }
+
+  /** Creates an instance. The name is made unique (see uniqueName); creations run one at a time so two at once can't pick the same name. */
+  async create(opts) {
+    const run = (this.creating || Promise.resolve()).then(() => this.createNow(opts));
+    this.creating = run.catch(() => {});
+    return run;
+  }
+
+  async createNow({ name, mcVersion, loader = { type: 'vanilla' }, icon = null, pack = null }) {
     if (!mcVersion) throw new Error('Pick a Minecraft version');
-    name = String(name || '').trim() || `${loader.type === 'vanilla' ? 'Vanilla' : loader.type} ${mcVersion}`;
+    name = await this.uniqueName(String(name || '').trim() || `${loader.type === 'vanilla' ? 'Vanilla' : loader.type} ${mcVersion}`);
     let id = slugify(name);
     if (await exists(path.join(this.dir, id))) id = `${id}-${shortId(4)}`;
     const inst = {

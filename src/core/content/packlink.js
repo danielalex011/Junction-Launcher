@@ -425,6 +425,13 @@ class PackLink {
     const diff = comparePacks(from, next);
     await this.fillTitles([...diff.added, ...diff.removed, ...diff.updated], entries);
     const covered = additionsCoveredBy(entries, next);
+    // Mods a template added: the pack may now ship the same mod under another site's ID (a Modrinth pack's index has no names,
+    // so compare with the names of what it adds).
+    const addedNames = new Set(diff.added.filter((r) => r.type === 'mod' && r.title).map((r) => matchKey(r.title)));
+    for (const [rel, e] of Object.entries(entries)) {
+      if (e.fromPack || !e.fromTemplate || !contentType(rel) || covered.includes(rel)) continue;
+      if (e.title && addedNames.has(matchKey(e.title))) covered.push(rel);
+    }
     const disabledPack = [];
     for (const t of Object.keys(TYPE_DIR)) {
       for (const it of await this.instances.listContent(instId, t)) if (it.fromPack && !it.enabled) disabledPack.push(it.title);
@@ -443,7 +450,7 @@ class PackLink {
       ...diff,
       exact: Boolean(cur),
       keptAdditions: additions.filter(([rel]) => !covered.includes(rel)).length,
-      covered: covered.map((rel) => ({ rel, title: entries[rel]?.title || entries[rel]?.meta?.name || prettyName(rel) })),
+      covered: covered.map((rel) => ({ rel, title: entries[rel]?.title || entries[rel]?.meta?.name || prettyName(rel), fromTemplate: entries[rel]?.fromTemplate?.name || null })),
       keptDisabled: disabledPack,
       replacedChanged,
     };
@@ -543,9 +550,12 @@ class PackLink {
    * Moves the instance to another pack version (or the same one: a reinstall).
    *   keepAdditions: false removes the files you added yourself (reinstall only).
    *   keepDisabled: pack mods you turned off stay off in the new version.
-   * Returns the install result plus { backup, removedCovered: [title], reenabled }.
+   *   removeCovered / keepCovered: your own copies of mods the pack now ships are removed (the pack's copy wins). The review
+   *     offers each one: the ticked ones come as removeCovered (also removed when only a name match found them), the unticked
+   *     ones as keepCovered and stay (they come back in `keptDuplicates`).
+   * Returns the install result plus { backup, removedCovered: [title], keptDuplicates: [title], keptOff }.
    */
-  async applyVersion(instId, versionId, { action = 'update', keepAdditions = true, keepDisabled = true, report = () => {} } = {}) {
+  async applyVersion(instId, versionId, { action = 'update', keepAdditions = true, keepDisabled = true, removeCovered = [], keepCovered = [], report = () => {} } = {}) {
     const inst = await this.instances.get(instId);
     if (!isLinkedPack(inst)) throw new Error('This instance is not linked to a modpack.');
     // Labels first, so "the pack's files" and "your additions" are right before anything is replaced.
@@ -575,10 +585,16 @@ class PackLink {
     const after = await this.freshEntries(instId);
     // Your own copy of something the pack now ships: the pack's copy wins.
     const removedCovered = [];
+    const keptDuplicates = [];
     if (manifest) {
       const packModIds = new Set(Object.values(after).filter((e) => e.fromPack && e.meta?.modId).map((e) => e.meta.modId));
-      const covered = additionsCoveredBy(after, manifest, packModIds);
+      const found = additionsCoveredBy(after, manifest, packModIds);
+      // The ones the review offered and the user ticked count too (a name match the manifest alone can't see); unticked ones stay.
+      const keep = new Set(keepCovered || []);
+      const ticked = (removeCovered || []).filter((rel) => after[rel] && !after[rel].fromPack && contentType(rel));
+      const covered = [...new Set([...found, ...ticked])].filter((rel) => !keep.has(rel));
       for (const rel of covered) removedCovered.push(after[rel]?.title || after[rel]?.meta?.name || prettyName(rel));
+      for (const rel of keep) if (after[rel] && !after[rel].fromPack) keptDuplicates.push(after[rel].title || after[rel].meta?.name || prettyName(rel));
       if (covered.length) await this.content.removeFiles(instId, covered);
     }
     // Pack mods you had turned off stay off.
@@ -595,7 +611,7 @@ class PackLink {
     const rec = await readJson(recFile, {});
     await writeJson(recFile, { ...rec, to: now.pack?.versionName });
     report(1, 'Done');
-    return { ...r, backup, removedCovered, keptOff };
+    return { ...r, backup, removedCovered, keptDuplicates, keptOff };
   }
 }
 
