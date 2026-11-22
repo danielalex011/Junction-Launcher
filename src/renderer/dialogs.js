@@ -97,6 +97,8 @@ async function newInstanceDialog(preset = {}) {
   let mc = preset.mcVersion || versions[0]?.id;
   let loaderVersion = null;
   let nameTouched = false;
+  let templates = [];
+  let templateId = null; // null = start blank
   const nameInput = h('input', { type: 'text', placeholder: 'Instance name', oninput: () => { nameTouched = true; } });
   const autoName = () => { if (!nameTouched) nameInput.value = `${LOADER[loader]} ${mc}`; };
   const mcSelectWrap = h('div');
@@ -139,12 +141,32 @@ async function newInstanceDialog(preset = {}) {
     },
   }), 'Show snapshots');
 
+  // Start from: Blank, or one of the saved templates (the Minecraft version and loader are still picked below)
+  const templateWrap = h('div');
+  const startSeg = h('div', { class: 'seg' },
+    h('button', { type: 'button', class: 'on', onclick: (e) => setStart(e.currentTarget, false) }, 'Blank'),
+    h('button', { type: 'button', onclick: (e) => setStart(e.currentTarget, true) }, 'Template'));
+  function setStart(btn, useTemplate) {
+    startSeg.querySelectorAll('button').forEach((b) => b.classList.toggle('on', b === btn));
+    if (!useTemplate) { templateId = null; templateWrap.replaceChildren(); return; }
+    if (!templates.length) {
+      templateId = null;
+      templateWrap.replaceChildren(h('div', { class: 'hint' }, 'No templates yet. Open an instance, then ⋯ → Save as template.'));
+      return;
+    }
+    templateId = templateId || templates[0].id;
+    templateWrap.replaceChildren(select(templates.map((t) => ({ value: t.id, label: `${t.name} (${tplCountText(t.counts)})` })), templateId, (v) => { templateId = v; }),
+      h('div', { class: 'hint' }, 'Pick the Minecraft version and loader below. Junction looks up the newest matching version of each project and shows you a list before installing anything.'));
+  }
+  call('template:list').then((l) => { templates = l; }).catch(() => {});
+
   renderMcSelect();
   autoName();
   loadLoaderVersions();
   modal({
     title: 'New instance',
     body: [
+      h('div', { class: 'field' }, h('span', { class: 'small muted', style: { fontWeight: 600 } }, 'Start from'), startSeg, templateWrap),
       h('label', { class: 'field' }, 'Name', nameInput),
       h('div', { class: 'field' }, h('span', { class: 'small muted', style: { fontWeight: 600 } }, 'Mod loader'), seg),
       h('div', { class: 'form-grid' },
@@ -158,7 +180,20 @@ async function newInstanceDialog(preset = {}) {
       {
         label: 'Create', class: 'primary', icon: 'plus', onClick: async () => {
           if (loader !== 'vanilla' && !loaderVersion) throw new Error('Pick a loader version first');
-          const inst = await call('inst:create', { name: nameInput.value.trim(), mcVersion: mc, loader: loader === 'vanilla' ? { type: 'vanilla' } : { type: loader, version: loaderVersion } });
+          const loaderSpec = loader === 'vanilla' ? { type: 'vanilla' } : { type: loader, version: loaderVersion };
+          if (templateId) {
+            // Look everything up first and show the review. The instance is only created once it is confirmed.
+            const plan = await call('template:plan', templateId, { mcVersion: mc, loader: loaderSpec });
+            const name = nameInput.value.trim();
+            setTimeout(() => templateReviewDialog(plan, async (chosen) => {
+              const made = await call('inst:create', { name, mcVersion: mc, loader: loaderSpec });
+              toast(`Created ${made.name}`, 'good');
+              go('instance', { id: made.id });
+              try { await handleInstallResult(await call('template:apply', made.id, chosen, true), made.id); } catch (e) { toast(e.message, 'error'); }
+            }), 0);
+            return;
+          }
+          const inst = await call('inst:create', { name: nameInput.value.trim(), mcVersion: mc, loader: loaderSpec });
           toast(`Created ${inst.name}`, 'good');
           go('instance', { id: inst.id });
         },

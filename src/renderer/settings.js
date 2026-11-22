@@ -123,6 +123,7 @@ function settingsGeneral(s, info, auto) {
         setCheckbox(auto, 'showSnapshots', Boolean(s.showSnapshots), 'Show snapshots when creating instances'),
         setCheckbox(auto, 'showNews', s.showNews !== false, 'Show Minecraft news on the Home page'),
         setCheckbox(auto, 'includeOptionalPackFiles', Boolean(s.includeOptionalPackFiles), 'Include optional files when installing Modrinth packs'))),
+    templatesSection(),
     h('div', { class: 'section' }, h('h3', null, 'Sources'),
       h('div', { class: 'row wrap', style: { gap: '22px' } },
         h('label', { class: 'check' }, srcMr, 'Search Modrinth'),

@@ -34,6 +34,7 @@ const { runtimeRows, downloadRuntime, removeRuntime } = require('../core/minecra
 const { cacheInfo, clearCache } = require('../core/storage');
 const { diskSpace, checkSpace, MIN_FREE_BYTES, MIN_FREE_PERCENT } = require('../core/space');
 const { inspectSource, planCopy, copyFrom, compareWorld } = require('../core/content/worldcopy');
+const { Templates } = require('../core/content/templates');
 const { buildDebugInfo } = require('../core/debuginfo');
 const { readLicenses } = require('../core/licenses');
 const { notificationFor } = require('../core/notify');
@@ -41,7 +42,7 @@ const { notificationFor } = require('../core/notify');
 const VERSION = require('../../package.json').version;
 let win = null;
 const bgDir = () => path.join(ctx.root, 'appearance'); // the chosen background picture (copied here)
-let ctx; let accounts; let skins; let instances; let sources; let content; let modpacks; let home; let news; let packlink; let errorLog;
+let ctx; let accounts; let skins; let instances; let sources; let content; let templates; let modpacks; let home; let news; let packlink; let errorLog;
 const running = new Map();
 const blockedSessions = new Map();
 let pendingOpenFiles = [];
@@ -595,6 +596,18 @@ function registerIpc() {
     }), { instanceId: targetId, kind: 'other', icon: 'instance', heavy: true });
   });
 
+  // --- instance templates (the recipe of an instance: project IDs, no jar files)
+  handle('template:list', async () => templates.list());
+  handle('template:save', async (instId, opts) => templates.save(instId, opts || {}));
+  handle('template:rename', async (id, name) => templates.rename(id, name));
+  handle('template:delete', async (id) => templates.remove(id));
+  handle('template:plan', async (id, target) => templates.plan(id, target || {}));
+  handle('template:apply', async (instId, chosen, confirmed) => {
+    const inst = await instances.get(instId);
+    const r = await ctx.tasks.run(`Adding template content to ${inst.name}`, (t) => templates.apply(instId, chosen, { confirmed: confirmed === true, report: t.update }), { instanceId: instId, kind: 'mod', icon: 'mod', heavy: true });
+    return { ...r, blockedSession: startBlockedSession(instId, r.blocked) };
+  });
+
   // --- accounts
   handle('accounts:list', async () => ({
     accounts: accounts.list().map((a) => ({ ...a, iconSrc: a.skinAt ? `junction-skin://${a.id}/?v=${a.skinAt}` : null })),
@@ -759,6 +772,7 @@ app.whenReady().then(async () => {
   instances = new Instances(ctx);
   sources = createSources(ctx);
   content = new ContentManager(ctx, instances, sources);
+  templates = new Templates(ctx, instances, content);
   modpacks = new Modpacks(ctx, instances, content, sources);
   packlink = new PackLink(ctx, instances, content, modpacks, sources);
   home = new Home(ctx, instances, content, sources, packlink);
