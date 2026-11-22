@@ -93,7 +93,7 @@ on('app:openFiles', (files) => { for (const f of files) importPackFile(f); });
   applyAppearance();
   renderNav();
   renderAccountChip();
-  go('home');
+  go(state.settings?.startPage === 'library' ? 'library' : 'home');
   initActivity();
   const snap = await call('tasks:list').catch(() => ({ active: [], history: [] }));
   for (const t of snap.active) state.tasks.set(t.id, t);

@@ -136,7 +136,6 @@ async function renderInstSettings(inst, root) {
   const versions = await loadMcVersions(true);
   const f = {
     name: h('input', { type: 'text', value: inst.name }),
-    memMax: h('input', { type: 'number', min: 512, step: 256, value: inst.memoryMax || '', placeholder: `${s.memoryMax} (default)` }),
     memMin: h('input', { type: 'number', min: 256, step: 256, value: inst.memoryMin || '', placeholder: `${s.memoryMin} (default)` }),
     jvm: h('textarea', { rows: 3, placeholder: 'Extra JVM arguments, e.g. -XX:+UseZGC', value: inst.jvmArgs || '' }),
     java: h('input', { type: 'text', value: inst.javaPath || '', placeholder: 'Automatic (Mojang runtime for this version)' }),
@@ -144,6 +143,8 @@ async function renderInstSettings(inst, root) {
     height: h('input', { type: 'number', min: 0, value: inst.resolution?.height || '', placeholder: 'default' }),
     server: h('input', { type: 'text', value: inst.joinServer || '', placeholder: 'e.g. play.example.net:25565' }),
   };
+  const memCtl = memoryControl({ totalMB: state.info?.totalMemMB, valueMB: inst.memoryMax || null, defaultMB: s.memoryMax, nullable: true, name: inst.name });
+  call('inst:modCounts').then((c) => memCtl.setMods(c[inst.id] ?? null)).catch(() => {});
   let mc = inst.mcVersion;
   let loader = inst.loader?.type || 'vanilla';
   let loaderVersion = inst.loader?.version || null;
@@ -161,6 +162,7 @@ async function renderInstSettings(inst, root) {
   if (!inst.linked) loadLv();
   const locked = inst.linked;
   const save = async () => {
+    if (!memCtl.isValid()) { toast('Fix the memory amount first.', 'error'); return; }
     const changedGame = !locked && mc !== inst.mcVersion || loader !== (inst.loader?.type || 'vanilla') || (loaderVersion || null) !== (inst.loader?.version || null);
     if (changedGame && !(await confirmDialog('Change game version?', 'Mods made for the old version or loader may not work and may need updating. Worlds opened in a newer version can\'t safely go back.', 'Change it'))) return;
     const w = Number(f.width.value) || 0;
@@ -168,7 +170,7 @@ async function renderInstSettings(inst, root) {
     await call('inst:update', inst.id, {
       name: f.name.value.trim() || inst.name,
       ...(locked ? {} : { mcVersion: mc, loader: loader === 'vanilla' ? { type: 'vanilla' } : { type: loader, version: loaderVersion } }),
-      memoryMax: Number(f.memMax.value) || null,
+      memoryMax: memCtl.getValue(),
       memoryMin: Number(f.memMin.value) || null,
       jvmArgs: f.jvm.value.trim(),
       javaPath: f.java.value.trim(),
@@ -189,10 +191,11 @@ async function renderInstSettings(inst, root) {
         locked ? lockedField('Loader', LOADER[inst.loader?.type] || inst.loader?.type || 'Vanilla') : h('label', { class: 'field' }, 'Loader', select(Object.entries(LOADER).map(([k, l]) => ({ value: k, label: l })), loader, (v) => { loader = v; loadLv(); })),
         locked ? lockedField('Loader version', inst.loader?.version || '—') : h('label', { class: 'field' }, 'Loader version', lvWrap))),
     h('div', { class: 'section' }, h('h3', null, 'Java & memory'),
-      h('p', null, `Leave empty to use the defaults from Settings (${s.memoryMax} MB max). Java is downloaded automatically in the version Minecraft needs.`),
-      h('div', { class: 'form-grid' },
-        h('label', { class: 'field' }, 'Maximum memory (MB)', f.memMax),
-        h('label', { class: 'field' }, 'Minimum memory (MB)', f.memMin),
+      h('h4', { class: 'sub' }, 'Maximum memory'),
+      h('p', null, `Move the slider to give this instance its own amount, or use the default from Settings (${JunctionMemory.gbText(s.memoryMax)}). Java is downloaded automatically in the version Minecraft needs.`),
+      memCtl,
+      h('div', { class: 'form-grid', style: { marginTop: '18px' } },
+        h('label', { class: 'field' }, 'Minimum memory (MB), advanced', f.memMin),
         h('label', { class: 'field' }, 'Java executable', h('div', { class: 'row' }, f.java, h('button', { class: 'btn', type: 'button', onclick: async () => { const p = await call('dialog:pickJava'); if (p) f.java.value = p; } }, 'Browse')))),
       h('label', { class: 'field', style: { marginTop: '14px' } }, 'JVM arguments', f.jvm),
       h('div', { class: 'row wrap', style: { marginTop: '8px' } }, h('span', { class: 'hint' }, 'Presets:'),

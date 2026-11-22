@@ -245,6 +245,16 @@ class Instances {
     return out;
   }
 
+  /** How many mods are switched on in each instance ({ id: count }): counts the .jar files in mods/, nothing is opened. */
+  async modCounts() {
+    const out = {};
+    for (const inst of await this.list()) {
+      const names = await fs.promises.readdir(path.join(this.gameDir(inst.id), 'mods')).catch(() => []);
+      out[inst.id] = names.filter((n) => /\.jar$/i.test(n)).length;
+    }
+    return out;
+  }
+
   contentPath(id, rel, enabled = true) {
     const full = safeJoin(this.gameDir(id), rel);
     return enabled ? full : `${full}.disabled`;

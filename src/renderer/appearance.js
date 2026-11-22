@@ -38,7 +38,8 @@ function changeAppearance(patch) {
   s.appearance = { ...s.appearance, ...patch };
   applyAppearance(s.appearance);
   clearTimeout(appearanceSaveTimer);
-  appearanceSaveTimer = setTimeout(() => call('settings:set', { appearance: s.appearance }).catch((e) => toast(e.message, 'error')), 200); // the whole object, so quick changes in a row can't lose each other
+  settingsUi.note('saving');
+  appearanceSaveTimer = setTimeout(() => call('settings:set', { appearance: s.appearance }).then(() => settingsUi.note('saved')).catch((e) => { settingsUi.note('error', e.message); toast(e.message, 'error'); }), 200); // the whole object, so quick changes in a row can't lose each other
 }
 
 function appearanceSection() {

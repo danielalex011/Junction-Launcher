@@ -33,7 +33,7 @@ async function createContext(root, { crypto, fetchImpl, builtins = {} } = {}) {
     decrypt: async (s) => Buffer.from(String(s).replace(/^b64:/, ''), 'base64').toString('utf8'),
   };
   const settings = await new Settings(paths.settingsFile, cryptoImpl, builtins).load();
-  const http = new Http({ getCurseForgeKey: () => settings.get('cfApiKey'), fetchImpl });
+  const http = new Http({ getCurseForgeKey: () => settings.get('cfApiKey'), getSpeedLimit: () => settings.get('speedLimitMBps'), fetchImpl });
   const tasks = await new TaskManager({ historyFile: paths.tasksFile }).load();
   return { root, paths, settings, http, tasks, crypto: cryptoImpl };
 }

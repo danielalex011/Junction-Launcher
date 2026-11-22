@@ -590,9 +590,10 @@ class ContentManager {
     if (record.items.length) {
       await writeJson(path.join(bdir, 'update.json'), record);
       out.backup = stamp;
-      // Keep the five most recent update backups.
+      // Keep the most recent update backups (Settings → Downloads & storage, 5 by default).
+      const keep = Math.max(1, Number(this.ctx.settings.get('backupsKept')) || 5);
       const all = (await fsp.readdir(this.backupsDir(instId)).catch(() => [])).sort().reverse();
-      for (const old of all.slice(5)) await fsp.rm(path.join(this.backupsDir(instId), old), { recursive: true, force: true });
+      for (const old of all.slice(keep)) await fsp.rm(path.join(this.backupsDir(instId), old), { recursive: true, force: true });
     }
     return out;
   }

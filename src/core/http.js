@@ -120,6 +120,20 @@ class Http {
     this.retryDelays = opts.retryDelays || [2000, 5000, 10000, 20000]; // before retries 1..4, jittered
     this.cdnLimit = opts.cdnLimit || CDN_LIMIT;
     this.gates = new Map();
+    this.getSpeedLimit = opts.getSpeedLimit || (() => 0); // MB per second for all downloads together, 0 = unlimited
+    this.nextSlot = 0; // when the shared "speed limit" queue is free again (ms)
+  }
+
+  /**
+   * Speed limit: how many ms a download has to wait after receiving `bytes` so that all downloads together stay under the limit.
+   * Every download queues behind the same clock, so 16 at once share the limit instead of each getting all of it.
+   */
+  throttleDelay(bytes, now = Date.now()) {
+    const mbps = Number(this.getSpeedLimit()) || 0;
+    if (mbps <= 0) { this.nextSlot = 0; return 0; }
+    const start = Math.max(this.nextSlot, now);
+    this.nextSlot = start + (bytes / (mbps * 1024 * 1024)) * 1000;
+    return Math.max(0, Math.round(this.nextSlot - now - 250)); // 250 ms of burst keeps small files quick
   }
 
   gateFor(url) {
@@ -268,6 +282,8 @@ class Http {
             h1.update(chunk);
             if (h512) h512.update(chunk);
             if (!out.write(chunk)) await once(out, 'drain');
+            const wait = this.throttleDelay(chunk.length);
+            if (wait > 0) await this.sleep(wait);
             if (handle) handle.progress(received, total);
             if (onProgress) onProgress(received, total);
           }

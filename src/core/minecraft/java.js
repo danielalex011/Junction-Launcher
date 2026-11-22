@@ -35,7 +35,7 @@ async function getIndex(ctx) {
   }
 }
 
-async function ensureRuntime(ctx, component, onProgress = () => {}) {
+async function ensureRuntime(ctx, component, onProgress = () => {}, { force = false } = {}) {
   const dir = path.join(ctx.paths.runtimes, component);
   const markerFile = path.join(dir, '.junction-runtime.json');
   const marker = await readJson(markerFile, null);
@@ -54,7 +54,7 @@ async function ensureRuntime(ctx, component, onProgress = () => {}) {
     throw new Error(`Mojang has no "${component}" Java runtime for ${platformKey()}. Set a Java path in Settings or the instance settings.`);
   }
   const entry = entries[0];
-  if (marker && marker.manifestSha1 === entry.manifest.sha1 && (await exists(exe))) return exe;
+  if (!force && marker && marker.manifestSha1 === entry.manifest.sha1 && (await exists(exe))) return exe; // force = repair: check every file again
 
   const manifest = await ctx.http.json(entry.manifest.url);
   const files = Object.entries(manifest.files);
@@ -85,15 +85,39 @@ async function ensureRuntime(ctx, component, onProgress = () => {}) {
   return exe;
 }
 
-/** Picks the Java to use: instance override > global override > Mojang runtime. */
+// Mojang's runtime names and the Java they hold. The Settings page groups them into the four versions people know.
+const COMPONENT_MAJOR = { 'jre-legacy': 8, 'java-runtime-alpha': 16, 'java-runtime-beta': 17, 'java-runtime-gamma': 17, 'java-runtime-gamma-snapshot': 17, 'java-runtime-delta': 21, 'java-runtime-epsilon': 25 };
+
+/** 8, 16 -> 8/17 ... : the Java version row (8, 17, 21 or 25) a Java belongs to. */
+function bucketMajor(n) {
+  const m = Number(n) || 0;
+  if (m <= 8) return 8;
+  if (m <= 17) return 17;
+  if (m <= 21) return 21;
+  return 25;
+}
+
+/** The Java version row (8, 17, 21, 25) a Minecraft version file asks for. */
+function javaMajorFor(version) {
+  const m = version?.javaVersion?.majorVersion || COMPONENT_MAJOR[version?.javaVersion?.component] || 8;
+  return bucketMajor(m);
+}
+
+/** Picks the Java to use: this instance's own > the one chosen for this Java version in Settings > Mojang's runtime. */
 async function javaFor(ctx, version, instance, onProgress) {
-  const override = instance?.javaPath || ctx.settings.get('javaPath');
+  const major = javaMajorFor(version);
+  const chosen = ctx.settings.get('javaByMajor')?.[major];
+  const override = instance?.javaPath || chosen || ctx.settings.get('javaPath'); // javaPath: the old single override, still honoured
   if (override) {
-    if (!(await exists(override))) throw new Error(`Java not found at ${override}`);
+    if (!(await exists(override))) {
+      throw new Error(instance?.javaPath || !chosen
+        ? `Java not found at ${override}. Pick another one, or clear it to use the automatic Java.`
+        : `The Java you chose for Java ${major} is not at ${override} any more. Pick another one in Settings → Java, or set it back to Automatic.`);
+    }
     return override;
   }
   const component = version.javaVersion?.component || 'jre-legacy';
   return ensureRuntime(ctx, component, onProgress);
 }
 
-module.exports = { ensureRuntime, javaFor, javaExecutable, platformKey };
+module.exports = { ensureRuntime, javaFor, javaExecutable, platformKey, COMPONENT_MAJOR, bucketMajor, javaMajorFor };

@@ -60,7 +60,8 @@ async function connect() {
   await sleep(3000); // let init() finish
 
   const instId = await run('call("inst:list").then((l) => l[0]?.id || null)');
-  const pages = [['home', '{}'], ['library', '{}'], ['browse', '{}'], ['skins', '{}'], ['settings', '{}']];
+  const tabs = ['general', 'appearance', 'memory', 'java', 'storage', 'about'];
+  const pages = [['home', '{}'], ['library', '{}'], ['browse', '{}'], ['skins', '{}'], ...tabs.map((t) => ['settings', `{ tab: '${t}' }`])];
   if (instId) pages.splice(2, 0, ['instance', `{ id: ${JSON.stringify(instId)} }`]);
   else console.log('(no instance in this data folder, skipping the instance page)');
 
@@ -76,8 +77,24 @@ async function connect() {
       if (!t2 || !/Add Microsoft account/.test(t2)) failures.push('The account button on the Skins page did not open its menu.');
       await run('document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })); document.body.click();');
     }
-    console.log(`${name}: chip menu ${text ? 'opens' : 'DOES NOT OPEN'}`);
+    if (name === 'settings') {
+      const tab = /tab: '(\w+)'/.exec(params)[1];
+      const shown = await run(`document.querySelector('.set-tab.on')?.id + '|' + (document.querySelector('.set-body')?.innerText.length || 0)`);
+      if (shown.split('|')[0] !== `set-tab-${tab}` || Number(shown.split('|')[1]) < 40) failures.push(`The Settings "${tab}" tab did not show its content (${shown}).`);
+    }
+    console.log(`${name === 'settings' ? `settings/${/tab: '([a-z]+)'/.exec(params)[1]}` : name}: chip menu ${text ? 'opens' : 'DOES NOT OPEN'}`);
   }
+
+  // Auto-save: a valid number is saved and the "Saved" note shows; a wrong one shows an error and is not saved.
+  await run("go('settings', { tab: 'storage' }).then(() => new Promise((r) => setTimeout(r, 800)))");
+  const typeInto = (sel, v) => run(`(async () => { const i = document.querySelector(${JSON.stringify(sel)}); i.value = ${JSON.stringify(v)}; i.dispatchEvent(new Event('input', { bubbles: true })); await new Promise((r) => setTimeout(r, 1200)); return [document.querySelector('.set-saved')?.textContent, [...document.querySelectorAll('.field-error')].map((e) => e.textContent).join('|')]; })()`);
+  const [note, errs] = await typeInto('input[aria-label="Parallel downloads"]', '20');
+  const saved = await run("call('settings:get').then((s) => s.concurrency)");
+  if (saved !== 20 || !/Saved/.test(note || '')) failures.push(`Auto-save: typed 20 parallel downloads, got setting ${saved}, note "${note}".`);
+  const [, bad] = await typeInto('input[aria-label="Parallel downloads"]', '0');
+  const still = await run("call('settings:get').then((s) => s.concurrency)");
+  if (still !== 20 || !/At least 1/.test(bad)) failures.push(`Auto-save: a wrong value was not refused (setting ${still}, error "${bad}").`);
+  console.log(`auto-save: typed 20 -> ${saved} (${note}); typed 0 -> still ${still} (${bad})`);
   ws.close();
   child.kill();
   for (const e of errors) failures.push(`Window error: ${e}`);

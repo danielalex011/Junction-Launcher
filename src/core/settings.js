@@ -15,7 +15,12 @@ function defaults() {
     concurrency: 16,
     preferredSource: 'ask', // 'ask' | 'modrinth' | 'curseforge': where Install goes when a project is on both
     sources: { modrinth: true, curseforge: true },
-    closeOnLaunch: false,
+    startPage: 'home', // 'home' | 'library'
+    onLaunch: 'keep', // what Junction does when the game starts: 'keep' | 'minimize' | 'hide'
+    notifyOnFinish: true, // desktop notification when a download or install finishes
+    javaByMajor: {}, // { "17": "C:\\...\\javaw.exe" } one chosen Java per Java version (8, 17, 21, 25); missing = automatic
+    speedLimitMBps: 0, // 0 = no limit
+    backupsKept: 5, // update backups kept per instance
     showSnapshots: false,
     includeOptionalPackFiles: true,
     updateChannel: 'alpha', // newest of: release | beta | alpha
@@ -40,6 +45,11 @@ class Settings {
     const raw = await readJson(this.file, {});
     this.data = { ...defaults(), ...(raw.settings || {}) };
     this.data.sources = { ...defaults().sources, ...(raw.settings?.sources || {}) };
+    if (raw.settings && 'closeOnLaunch' in raw.settings) { // before 0.1.34 this was a checkbox
+      if (!raw.settings.onLaunch) this.data.onLaunch = raw.settings.closeOnLaunch ? 'hide' : 'keep';
+      delete this.data.closeOnLaunch;
+    }
+    this.normalize();
     this.data.appearance = normalizeAppearance(raw.settings?.appearance);
     this.secrets = raw.secrets || {};
     this.plain = {};
@@ -83,11 +93,28 @@ class Settings {
         this.data[k] = v;
       }
     }
-    this.data.memoryMax = Math.max(512, Number(this.data.memoryMax) || 4096);
-    this.data.memoryMin = Math.max(256, Math.min(this.data.memoryMax, Number(this.data.memoryMin) || 512));
-    this.data.concurrency = Math.max(1, Math.min(64, Number(this.data.concurrency) || 16));
+    this.normalize();
     await this.save();
     return this.publicView();
+  }
+
+  /** Keeps every value inside what the app understands, whatever was typed or found in an old file. */
+  normalize() {
+    const d = this.data;
+    const num = (v, fallback) => (Number.isFinite(Number(v)) && v !== '' && v !== null ? Number(v) : fallback);
+    d.memoryMax = Math.max(512, Math.round(num(d.memoryMax, 4096)));
+    d.memoryMin = Math.max(256, Math.min(d.memoryMax, Math.round(num(d.memoryMin, 512))));
+    d.concurrency = Math.max(1, Math.min(64, Math.round(num(d.concurrency, 16))));
+    d.speedLimitMBps = Math.max(0, Math.min(10000, Math.round(num(d.speedLimitMBps, 0) * 100) / 100));
+    d.backupsKept = Math.max(1, Math.min(50, Math.round(num(d.backupsKept, 5))));
+    if (!['home', 'library'].includes(d.startPage)) d.startPage = 'home';
+    if (!['keep', 'minimize', 'hide'].includes(d.onLaunch)) d.onLaunch = 'keep';
+    d.notifyOnFinish = d.notifyOnFinish !== false;
+    const by = {};
+    for (const [k, v] of Object.entries(d.javaByMajor && typeof d.javaByMajor === 'object' ? d.javaByMajor : {})) {
+      if (['8', '17', '21', '25'].includes(String(k)) && typeof v === 'string' && v.trim()) by[String(k)] = v.trim();
+    }
+    d.javaByMajor = by;
   }
 }
 

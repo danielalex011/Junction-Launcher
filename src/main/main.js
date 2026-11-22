@@ -1,5 +1,6 @@
 'use strict';
-const { app, BrowserWindow, ipcMain, dialog, shell, safeStorage, Menu, protocol, net, nativeImage, clipboard } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, shell, safeStorage, Menu, protocol, net, nativeImage, clipboard, Notification } = require('electron');
+const os = require('os');
 const { pathToFileURL } = require('url');
 const fs = require('fs');
 const path = require('path');
@@ -28,6 +29,12 @@ const { prepareInstance, launch } = require('../core/minecraft/launch');
 const { shortId, sniffImage } = require('../core/util');
 const { loadBuildConfig } = require('../core/build-config');
 const { HttpError, describeError } = require('../core/http');
+const { findJavas, testJava } = require('../core/javafinder');
+const { runtimeRows, downloadRuntime, removeRuntime } = require('../core/minecraft/javainfo');
+const { cacheInfo, clearCache } = require('../core/storage');
+const { buildDebugInfo } = require('../core/debuginfo');
+const { readLicenses } = require('../core/licenses');
+const { notificationFor } = require('../core/notify');
 
 const VERSION = require('../../package.json').version;
 let win = null;
@@ -131,6 +138,7 @@ function registerIpc() {
     msConfigured: Boolean(ctx.settings.get('msClientId')),
     encryption: encryptionAvailable,
     loaderNames: LOADER_NAMES,
+    totalMemMB: Math.floor(os.totalmem() / 1024 / 1024),
   }));
   handle('settings:get', async () => ctx.settings.publicView());
   handle('settings:set', async (patch) => ctx.settings.update(patch));
@@ -191,7 +199,7 @@ function registerIpc() {
   handle('inst:launch', async (id) => {
     if (running.has(id)) throw new Error('This instance is already running.');
     const inst = await instances.get(id);
-    const entry = { state: 'preparing', log: [], child: null };
+    const entry = { state: 'preparing', log: [], child: null, windowMode: 'keep' };
     running.set(id, entry);
     send('inst:state', { id, state: 'preparing' });
     try {
@@ -217,15 +225,21 @@ function registerIpc() {
           send('inst:state', { id, state: null, exit: { code, crashReport } });
           if (!win || win.isDestroyed()) {
             if (running.size === 0) app.quit(); // window was closed while playing
-          } else if (ctx.settings.get('closeOnLaunch') && !win.isVisible()) {
+          } else if (entry.windowMode === 'hide' && !win.isVisible()) {
             win.show();
+          } else if (entry.windowMode === 'minimize' && win.isMinimized()) {
+            win.restore();
           }
         },
       });
       entry.state = 'running';
       await instances.update(id, { lastPlayed: Date.now() });
       send('inst:state', { id, state: 'running' });
-      if (ctx.settings.get('closeOnLaunch') && win) win.hide();
+      entry.windowMode = ctx.settings.get('onLaunch') || 'keep'; // what to do with Junction's window while the game runs
+      if (win && !win.isDestroyed()) {
+        if (entry.windowMode === 'hide') win.hide();
+        else if (entry.windowMode === 'minimize') win.minimize();
+      }
       return true;
     } catch (e) {
       running.delete(id);
@@ -568,6 +582,29 @@ function registerIpc() {
   handle('shell:open', async (url) => { if (isHttpUrl(url)) await shell.openExternal(url); });
   handle('shell:openPath', async (p) => shell.openPath(p));
   handle('shell:openData', async () => shell.openPath(ctx.root));
+  handle('shell:openLogs', async () => { const p = path.join(ctx.root, 'logs'); fs.mkdirSync(p, { recursive: true }); return shell.openPath(p); });
+
+  // --- Settings: memory, Java, storage, about
+  handle('inst:modCounts', async () => instances.modCounts());
+  handle('java:runtimes', async () => runtimeRows(ctx, instances));
+  handle('java:find', async () => findJavas());
+  handle('java:test', async (file) => testJava(String(file || '')));
+  const javaTask = (major, repair) => ctx.tasks.run(`${repair ? 'Repairing' : 'Downloading'} Java ${Number(major)}`,
+    (t) => downloadRuntime(ctx, major, t.update, { repair }).then(() => true), { kind: 'java', icon: 'pack', heavy: true });
+  handle('java:download', async (major) => javaTask(major, false));
+  handle('java:repair', async (major) => javaTask(major, true));
+  handle('java:remove', async (major) => removeRuntime(ctx, instances, major, { running: [...running.keys()] }));
+  handle('storage:cache', async () => cacheInfo(ctx));
+  handle('storage:clearCache', async () => clearCache(ctx));
+  handle('licenses:list', async () => readLicenses(app.getAppPath()));
+  handle('app:copyDebugInfo', async () => {
+    const text = buildDebugInfo({
+      version: VERSION, settings: ctx.settings.publicView(), electron: process.versions.electron, node: process.versions.node,
+      javas: await findJavas().catch(() => []), runtimes: await runtimeRows(ctx, instances).catch(() => []), instanceCount: (await instances.list()).length,
+    });
+    clipboard.writeText(text);
+    return text;
+  });
   handle('dialog:pickJava', async () => {
     const r = await dialog.showOpenDialog(win, { properties: ['openFile'], title: 'Pick java / javaw executable' });
     return r.canceled ? null : r.filePaths[0];
@@ -647,6 +684,7 @@ app.on('open-file', (e, file) => {
 });
 
 app.whenReady().then(async () => {
+  if (process.platform === 'win32') app.setAppUserModelId('dk.junction.launcher'); // needed for Windows notifications
   Menu.setApplicationMenu(null);
   encryptionAvailable = await safeStorage.isAsyncEncryptionAvailable().catch(() => false);
   // Dev hook for automated UI screenshots: swap in a fake network.
@@ -662,7 +700,15 @@ app.whenReady().then(async () => {
   packlink = new PackLink(ctx, instances, content, modpacks, sources);
   home = new Home(ctx, instances, content, sources, packlink);
   news = new News(ctx);
-  ctx.tasks.on('update', (t) => send('task:update', t));
+  ctx.tasks.on('update', (t) => {
+    send('task:update', t);
+    const note = notificationFor(t, ctx.settings, Boolean(win && !win.isDestroyed() && win.isFocused()));
+    if (note && Notification.isSupported()) {
+      const n = new Notification({ ...note, icon: path.join(__dirname, '..', 'renderer', 'icon.png') });
+      n.on('click', () => { if (win && !win.isDestroyed()) { win.show(); win.focus(); } });
+      n.show();
+    }
+  });
   ctx.tasks.on('history', (list) => send('task:history', list));
   protocol.handle('junction-icon', async (req) => {
     const id = new URL(req.url).hostname;
