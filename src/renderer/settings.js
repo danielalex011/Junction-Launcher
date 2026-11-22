@@ -350,6 +350,19 @@ function settingsStorage(s, info, auto) {
   const loadCache = () => call('storage:cache').then((c) => { if (setHere(cacheText)) cacheText.textContent = `${fmtBytes(c.bytes)} in the cache`; }).catch(() => {});
   loadCache();
 
+  const spaceText = h('div', { class: 'hint' }, 'Checking free space…');
+  const spaceBar = h('div', { class: 'bar' }, h('i'));
+  call('storage:space').then((d) => {
+    if (!setHere(spaceText)) return;
+    if (d.free == null) { spaceText.textContent = "Couldn't read the free space on this drive."; spaceBar.remove(); return; }
+    const pct = (d.free / d.total) * 100;
+    const low = d.free < d.minFreeBytes || pct < d.minFreePercent;
+    spaceText.textContent = `${fmtBytes(d.free)} free of ${fmtBytes(d.total)} (${pct.toFixed(pct < 10 ? 1 : 0)}%)${low ? ' · running low' : ''}`;
+    spaceText.style.color = low ? 'var(--warn)' : '';
+    spaceBar.firstChild.style.width = `${Math.min(100, Math.max(0, 100 - pct))}%`;
+    if (low) spaceBar.firstChild.style.background = 'var(--warn)';
+  }).catch(() => { if (setHere(spaceText)) { spaceText.textContent = "Couldn't read the free space on this drive."; spaceBar.remove(); } });
+
   return [
     h('div', { class: 'section' }, h('h3', null, 'Downloads'),
       h('div', { class: 'form-grid' },
@@ -361,6 +374,9 @@ function settingsStorage(s, info, auto) {
     h('div', { class: 'section' }, h('h3', null, 'Cache'),
       h('p', null, 'Things Junction can download again: news, project lists and the like. Clearing it is safe.'),
       h('div', { class: 'row' }, clearBtn, cacheText)),
+    h('div', { class: 'section' }, h('h3', null, 'Free space'),
+      h('p', null, 'On the drive Junction keeps its data. Junction warns before a modpack install that would leave less than 10% or 5 GB free.'),
+      spaceBar, spaceText),
     h('div', { class: 'section' }, h('h3', null, 'Data folder'),
       h('p', null, 'Instances, accounts, Java and settings live here.'),
       h('div', { class: 'row' }, h('code', { class: 'grow ellipsis small', title: info.dataDir }, info.dataDir),

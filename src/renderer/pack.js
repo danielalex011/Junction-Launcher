@@ -217,6 +217,7 @@ async function packReviewDialog(inst, target) {
       { label: 'Cancel', class: 'ghost' },
       { label: 'Update', class: 'primary', icon: 'arrowUp', disabled: true, onClick: async () => {
         const r = await call('pack:apply', inst.id, target.id, { action: 'update' });
+        if (r.cancelled) return true; // low disk space and the user chose Cancel: keep the window open
         await handleInstallResult({ ...r, installed: [] }, inst.id);
         if (r.removedCovered?.length) toast(`Removed your own copy of ${r.removedCovered.slice(0, 3).join(', ')}${r.removedCovered.length > 3 ? ` and ${r.removedCovered.length - 3} more` : ''}: the pack includes ${r.removedCovered.length === 1 ? 'it' : 'them'} now.`, 'info', 9000);
         toast(`${inst.pack.name} is on ${target.versionNumber || 'the new version'}. Use "Undo update" if something breaks.`, 'good', 8000);
@@ -313,6 +314,7 @@ function reinstallDialog(inst) {
       { label: 'Cancel', class: 'ghost' },
       { label: 'Reinstall', class: 'primary', icon: 'download', onClick: async () => {
         const r = await call('pack:apply', inst.id, inst.pack.versionId, { action: 'reinstall', keepAdditions: keep });
+        if (r.cancelled) return true;
         await handleInstallResult({ ...r, installed: [] }, inst.id);
         toast(`Reinstalled ${inst.pack.name}. Use "Undo reinstall" if you need anything back.`, 'good', 8000);
         go('instance', { id: inst.id });

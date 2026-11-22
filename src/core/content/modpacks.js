@@ -372,6 +372,42 @@ class Modpacks {
     return { project, version, file: pickFile(version) };
   }
 
+  /**
+   * About how many bytes installing this pack archive writes: the files the pack downloads plus what it ships in overrides.
+   * Reads sizes from the pack's own file list (Modrinth) or from CurseForge's file records. null when it can't tell.
+   */
+  async estimateArchive(zipPath) {
+    let zip;
+    try { zip = new AdmZip(zipPath); } catch { return null; }
+    const fmt = detectPackFormat(zip);
+    if (!fmt) return null;
+    let total = 0;
+    const overrides = fmt === 'mrpack' ? ['overrides/', 'client-overrides/'] : [`${(JSON.parse(zip.readAsText('manifest.json')).overrides || 'overrides')}/`];
+    for (const e of zip.getEntries()) {
+      if (!e.isDirectory && overrides.some((p) => e.entryName.startsWith(p))) total += e.header.size;
+    }
+    if (fmt === 'mrpack') {
+      const index = JSON.parse(zip.readAsText('modrinth.index.json'));
+      for (const f of index.files || []) {
+        if (f.env?.client === 'unsupported') continue;
+        total += Number(f.fileSize) || 0;
+      }
+    } else {
+      const refs = (JSON.parse(zip.readAsText('manifest.json')).files || []).filter((f) => f.required !== false);
+      if (refs.length && this.sources.curseforge.configured()) {
+        for (const v of await this.sources.curseforge.files(refs.map((f) => f.fileID))) total += Number(pickFile(v)?.size) || 0;
+      }
+    }
+    return total;
+  }
+
+  /** Estimated install size of a pack picked from Modrinth / CurseForge (downloads the archive into the cache, which the install needs anyway). null when the author blocks downloads. */
+  async estimateFromSource({ source, projectId, versionId }) {
+    const { file, version } = await this.lookupPack(source, projectId, versionId);
+    if (!file.url) return null;
+    return this.estimateArchive(await this.fetchArchive(source, version.id, file));
+  }
+
   /** null when the pack can be downloaded by Junction; otherwise what to wait for in the Downloads folder (the author disabled third-party downloads). */
   async manualPackInfo({ source, projectId, versionId }) {
     const { project, version, file } = await this.lookupPack(source, projectId, versionId);

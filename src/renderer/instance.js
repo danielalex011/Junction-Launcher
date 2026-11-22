@@ -90,6 +90,7 @@ function instanceMenu(anchor, inst) {
       { label: 'Modpack settings', icon: 'sliders', onClick: () => go('instance', { id: inst.id, tab: 'settings' }) });
   }
   items.push('-',
+    { label: 'Copy worlds and settings from…', icon: 'copy', onClick: () => copyWorldsDialog(inst) },
     { label: 'Open mods folder', icon: 'folder', onClick: () => call('inst:openFolder', inst.id, 'mods') },
     { label: 'Duplicate', icon: 'copy', onClick: async () => { const c = await call('inst:duplicate', inst.id); toast(`Created ${c.name}`, 'good'); go('instance', { id: c.id }); } },
     { label: 'Delete instance', icon: 'trash', danger: true, onClick: async () => {

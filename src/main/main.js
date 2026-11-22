@@ -32,6 +32,8 @@ const { HttpError, describeError } = require('../core/http');
 const { findJavas, testJava } = require('../core/javafinder');
 const { runtimeRows, downloadRuntime, removeRuntime } = require('../core/minecraft/javainfo');
 const { cacheInfo, clearCache } = require('../core/storage');
+const { diskSpace, checkSpace, MIN_FREE_BYTES, MIN_FREE_PERCENT } = require('../core/space');
+const { inspectSource, planCopy, copyFrom, compareWorld } = require('../core/content/worldcopy');
 const { buildDebugInfo } = require('../core/debuginfo');
 const { readLicenses } = require('../core/licenses');
 const { notificationFor } = require('../core/notify');
@@ -376,8 +378,31 @@ function registerIpc() {
       return waitForDownload({ dir: app.getPath('downloads'), fileName: info.fileName, sha1: info.sha1, signal: t.signal });
     }, { kind: 'download', icon: 'download' });
   };
+  /**
+   * Before a modpack install or update: if it would leave the drive with under 10% or 5 GB free, ask.
+   * `estimate` returns the bytes it will write (or null when that can't be told, which never blocks).
+   */
+  const roomForPack = async (estimate) => {
+    let needed = null;
+    try { needed = await estimate(); } catch { return true; } // the install itself reports real problems
+    if (needed == null) return true;
+    const a = await checkSpace(ctx, needed);
+    if (!a || !a.low) return true;
+    const r = await dialog.showMessageBox(win, {
+      type: 'warning', title: 'Low disk space', noLink: true,
+      message: a.notEnough ? 'There may not be enough free space for this modpack' : 'This modpack will leave your drive nearly full',
+      detail: `${a.message}\n\nJunction keeps its data on this drive:\n${ctx.root}`,
+      buttons: ['Install anyway', 'Cancel'], defaultId: 1, cancelId: 1,
+    });
+    return r.response === 0;
+  };
+  handle('storage:space', async () => {
+    const d = await diskSpace(ctx.root);
+    return { path: ctx.root, ...(d || { free: null, total: null }), minFreeBytes: MIN_FREE_BYTES, minFreePercent: MIN_FREE_PERCENT };
+  });
   handle('pack:installFromSource', async (opts) => {
     const manualFile = opts.source === 'curseforge' ? await waitForManualPack(opts) : null;
+    if (!(await roomForPack(() => (manualFile ? modpacks.estimateArchive(manualFile) : modpacks.estimateFromSource(opts))))) return { cancelled: true };
     const r = await ctx.tasks.run(`Installing ${opts.title || 'modpack'}`, async (t) => {
       const res = await modpacks.installFromSource({ ...opts, manualFile, report: t.update });
       try { await packlink.label(res.instance.id); } catch (e) { res.warnings = [...(res.warnings || []), `Couldn't sort pack content from your additions yet: ${e.message}`]; }
@@ -392,6 +417,7 @@ function registerIpc() {
       if (r.canceled) return null;
       [file] = r.filePaths;
     }
+    if (!(await roomForPack(() => modpacks.estimateArchive(file)))) return null;
     const r = await ctx.tasks.run(`Importing ${path.basename(file)}`, (t) => modpacks.installFile(file, { report: t.update }), { kind: 'modpack', icon: 'pack', heavy: true, createsInstance: true });
     return { ...r, blockedSession: startBlockedSession(r.instance.id, r.blocked) };
   });
@@ -443,6 +469,8 @@ function registerIpc() {
     if (running.has(id)) throw new Error('Close the game before changing its modpack.');
     const inst = await instances.get(id);
     const action = opts.action === 'reinstall' ? 'reinstall' : 'update';
+    const p = inst.pack;
+    if (!(await roomForPack(() => (['modrinth', 'curseforge'].includes(p?.source) ? modpacks.estimateFromSource({ source: p.source, projectId: p.projectId, versionId }) : null)))) return { cancelled: true };
     const title = action === 'reinstall' ? `Reinstalling ${inst.pack.name}` : `Updating ${inst.name}`;
     const r = await ctx.tasks.run(title, (t) => packlink.applyVersion(id, versionId, { action, keepAdditions: opts.keepAdditions !== false, keepDisabled: action === 'update', report: t.update }), { instanceId: id, kind: 'update', icon: 'pack', heavy: true });
     packInfoCache.clear();
@@ -531,6 +559,41 @@ function registerIpc() {
   });
   handle('import:detect', async (folder) => withPreview(await detectInstance(folder)));
   handle('import:run', async (info, choices) => ctx.tasks.run(`Importing ${choices.name || info.name}`, (t) => importInstance({ instances, content }, info, choices, t.update), { kind: 'import', icon: 'instance', heavy: true, createsInstance: true }));
+
+  // --- copy worlds and settings from another instance (the source is only ever read)
+  // source: { instanceId } for one of Junction's instances, or { folder } for one found in another launcher.
+  const copySource = async (targetId, source = {}) => {
+    let dir;
+    if (source.instanceId) {
+      if (String(source.instanceId) === String(targetId)) throw new Error('That is the same instance. Pick a different one to copy from.');
+      if (running.has(source.instanceId)) throw new Error('Close the game for the instance you are copying from first.');
+      await instances.get(source.instanceId);
+      dir = instances.gameDir(source.instanceId);
+    } else if (typeof source.folder === 'string' && source.folder) {
+      dir = (await detectInstance(source.folder, { quick: true, skipModScan: true })).gameDir;
+    } else throw new Error('Pick an instance to copy from.');
+    if (path.resolve(dir) === path.resolve(instances.gameDir(targetId))) throw new Error('That is the same instance. Pick a different one to copy from.');
+    return dir;
+  };
+  handle('copy:inspect', async (targetId, source) => {
+    const inst = await instances.get(targetId);
+    const found = await inspectSource(await copySource(targetId, source));
+    return { ...found, worlds: found.worlds.map((w) => ({ ...w, status: compareWorld(w.version, inst.mcVersion) })), targetVersion: inst.mcVersion };
+  });
+  handle('copy:plan', async (targetId, source, choices) => {
+    const inst = await instances.get(targetId);
+    const { entries, ...plan } = await planCopy({ sourceDir: await copySource(targetId, source), targetDir: instances.gameDir(targetId), targetMc: inst.mcVersion, choices: choices || {} });
+    return { ...plan, count: entries.length, targetVersion: inst.mcVersion };
+  });
+  handle('copy:run', async (targetId, source, choices, confirmed) => {
+    if (running.has(targetId)) throw new Error('Close the game before copying worlds into it.');
+    const inst = await instances.get(targetId);
+    const sourceDir = await copySource(targetId, source);
+    return ctx.tasks.run(`Copying worlds and settings into ${inst.name}`, (t) => copyFrom({
+      ctx, sourceDir, targetDir: instances.gameDir(targetId), backupRoot: path.join(instances.instDir(targetId), 'backups'),
+      targetMc: inst.mcVersion, choices: choices || {}, confirmed: confirmed === true, report: t.update,
+    }), { instanceId: targetId, kind: 'other', icon: 'instance', heavy: true });
+  });
 
   // --- accounts
   handle('accounts:list', async () => ({
