@@ -105,7 +105,12 @@ async function newInstanceDialog(preset = {}) {
   let startMode = 'blank'; // 'blank' | 'template' | 'pack' (a modpack plus a template)
   let pickedPack = null;
   const nameInput = h('input', { type: 'text', placeholder: 'Instance name', oninput: () => { nameTouched = true; } });
-  const autoName = () => { if (!nameTouched) nameInput.value = templateId ? templateName : `${LOADER[loader]} ${mc}`; };
+  // Pre-filled until the user types their own: "<pack> + <template>", the template's name, or "<loader> <version>". The "(2)" rule only applies when the name is already taken.
+  const autoName = () => {
+    if (nameTouched) return;
+    if (startMode === 'pack') nameInput.value = pickedPack && templateId ? `${pickedPack.title} + ${templateName}` : '';
+    else nameInput.value = templateId ? templateName : `${LOADER[loader]} ${mc}`;
+  };
   const mcSelectWrap = h('div');
   const loaderVerWrap = h('div');
   const status = h('div', { class: 'hint' });
@@ -158,7 +163,7 @@ async function newInstanceDialog(preset = {}) {
     const t = templates.find((x) => x.id === templateId);
     if (!t) return;
     templateName = t.name;
-    if (startMode === 'pack') return; // the modpack decides
+    if (startMode === 'pack') { autoName(); return; } // the modpack decides
     if (t.mcVersion) { if (!versions.some((v) => v.id === t.mcVersion)) versions = [{ id: t.mcVersion, type: 'release' }, ...versions]; mc = t.mcVersion; renderMcSelect(); }
     const k = t.loader?.type;
     if (k && LOADER[k]) { loader = k; seg.querySelectorAll('button').forEach((b) => b.classList.toggle('on', b.textContent === LOADER[k])); }
@@ -171,7 +176,7 @@ async function newInstanceDialog(preset = {}) {
     return h('div', { class: 'row', style: { gap: '10px' } }, pickedPack ? avatar({ icon: pickedPack.icon, title: pickedPack.title }, 'sm') : null, label,
       h('button', { class: 'btn sm', type: 'button', onclick: async () => {
         const p = await pickModpackDialog();
-        if (p) { pickedPack = p; drawStart(); }
+        if (p) { pickedPack = p; autoName(); drawStart(); }
       } }, icon('pack', 14), pickedPack ? 'Change modpack' : 'Choose modpack…'));
   }
   function drawStart() {
@@ -192,10 +197,10 @@ async function newInstanceDialog(preset = {}) {
   function setStart(btn, mode) {
     startSeg.querySelectorAll('button').forEach((b) => b.classList.toggle('on', b === btn));
     startMode = mode;
-    if (mode === 'blank') { templateId = null; drawStart(); return; }
-    if (!templates.length) { templateId = null; drawStart(); return; }
+    if (mode === 'blank' || !templates.length) { templateId = null; autoName(); drawStart(); return; }
     templateId = templateId || templates[0].id;
     useTemplateDefaults();
+    autoName();
     drawStart();
   }
   call('template:list').then((l) => { templates = l; }).catch(() => {});
@@ -207,9 +212,9 @@ async function newInstanceDialog(preset = {}) {
     title: 'New instance',
     body: [
       h('div', { class: 'field' }, h('span', { class: 'small muted', style: { fontWeight: 600 } }, 'Start from'), startSeg, templateWrap),
+      h('label', { class: 'field' }, 'Name', nameInput),
       (() => {
         gameFields.append(
-          h('label', { class: 'field' }, 'Name', nameInput),
           h('div', { class: 'field' }, h('span', { class: 'small muted', style: { fontWeight: 600 } }, 'Mod loader'), seg),
           h('div', { class: 'form-grid' },
             h('label', { class: 'field' }, h('span', { class: 'row' }, h('span', { class: 'grow' }, 'Minecraft version'), snapToggle), mcSelectWrap),
@@ -227,7 +232,7 @@ async function newInstanceDialog(preset = {}) {
             if (!pickedPack) throw new Error('Choose a modpack first.');
             if (!templateId) throw new Error('Choose a template first.');
             const [pack, tid] = [pickedPack, templateId];
-            setTimeout(() => packTemplateFlow(pack, tid), 0); // the window closes; the install and the review carry on from here
+            setTimeout(() => packTemplateFlow(pack, tid, nameInput.value.trim()), 0); // the window closes; the install and the review carry on from here
             return;
           }
           if (loader !== 'vanilla' && !loaderVersion) throw new Error('Pick a loader version first');

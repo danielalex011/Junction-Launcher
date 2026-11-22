@@ -338,7 +338,7 @@ function registerIpc() {
     home.record(id, r.filter((u) => !u.error).length).catch(() => {}); // keeps Home's "Updates available" in step
     return r;
   });
-  const homeView = (d) => ({ ...d, recent: d.recent.map(withState), updates: d.updates.map((u) => ({ ...u, iconSrc: withState({ ...u, id: u.instanceId }).iconSrc })) });
+  const homeView = async (d) => { const added = await instances.addedCounts().catch(() => ({})); return ({ ...d, recent: d.recent.map((i) => ({ ...withState(i), addedCount: added[i.id] || 0 })), updates: d.updates.map((u) => ({ ...u, iconSrc: withState({ ...u, id: u.instanceId }).iconSrc })) }); };
   // Cached update info for the badges on instance cards (no network): { [instanceId]: { count, pack: versionName|null } }
   handle('home:badges', async () => Object.fromEntries((await home.state()).updates.map((u) => [u.instanceId, { count: u.count, pack: u.pack ? u.pack.versionName : null, packVersionId: u.pack ? u.pack.versionId : null }])));
   handle('quick:mods', async () => instances.modIndex());
@@ -362,7 +362,7 @@ function registerIpc() {
   handle('news:get', async () => news.state());
   handle('news:refresh', async (opts) => news.refresh(opts || {}));
   handle('home:state', async () => homeView(await home.state()));
-  handle('home:refresh', async (opts) => { await home.refresh(opts || {}); return homeView(await home.state()); });
+  handle('home:refresh', async (opts) => { await home.refresh(opts || {}); return await homeView(await home.state()); });
   handle('content:applyUpdates', async (id, updates) => {
     if (running.has(id)) throw new Error('Close the game before updating its mods.');
     const r = await ctx.tasks.run(`Updating ${updates.length} files`, (t) => content.applyUpdates(id, updates, t.update), { instanceId: id, kind: 'update', icon: 'mod' });
@@ -700,6 +700,7 @@ function registerIpc() {
 
   // --- Settings: memory, Java, storage, about
   handle('inst:modCounts', async () => instances.modCounts());
+  handle('inst:addedCounts', async () => instances.addedCounts());
   handle('java:runtimes', async () => runtimeRows(ctx, instances));
   handle('java:find', async () => findJavas());
   handle('java:test', async (file) => testJava(String(file || '')));

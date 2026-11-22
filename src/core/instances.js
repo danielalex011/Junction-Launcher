@@ -93,7 +93,7 @@ class Instances {
 
   async update(id, patch) {
     const inst = await this.get(id);
-    const allowed = ['name', 'mcVersion', 'loader', 'icon', 'pack', 'lastPlayed', 'playtimeMs', 'memoryMax', 'memoryMin', 'memoryMode', 'memoryWarnOff', 'jvmArgs', 'javaPath', 'resolution', 'joinServer', 'notes', 'importedFrom', 'originalIcon', 'iconVersion', 'unlinkedPack'];
+    const allowed = ['name', 'mcVersion', 'loader', 'icon', 'pack', 'lastPlayed', 'playtimeMs', 'memoryMax', 'memoryMin', 'memoryMode', 'memoryWarnOff', 'jvmArgs', 'javaPath', 'resolution', 'joinServer', 'notes', 'importedFrom', 'originalIcon', 'iconVersion', 'unlinkedPack', 'template'];
     for (const k of allowed) if (k in patch) inst[k] = patch[k];
     await writeJson(path.join(this.instDir(id), 'instance.json'), inst);
     return inst;
@@ -265,6 +265,21 @@ class Instances {
     for (const inst of await this.list()) {
       const names = await fs.promises.readdir(path.join(this.gameDir(inst.id), 'mods')).catch(() => []);
       out[inst.id] = names.filter((n) => /\.jar$/i.test(n)).length;
+    }
+    return out;
+  }
+
+  /**
+   * How many mods, resource packs and shaders were added by the user on top of a linked modpack ({ id: count }, only instances with a count above 0).
+   * Reads content.json only; a file counts when it is not one of the pack's own (`fromPack`).
+   */
+  async addedCounts() {
+    const out = {};
+    for (const inst of await this.list()) {
+      if (!isLinkedPack(inst)) continue;
+      const idx = await this.readIndex(inst.id).catch(() => null);
+      const n = Object.entries(idx?.files || {}).filter(([rel, e]) => !e.fromPack && /^(mods|resourcepacks|shaderpacks)\//.test(rel)).length;
+      if (n > 0) out[inst.id] = n;
     }
     return out;
   }

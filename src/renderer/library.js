@@ -3,7 +3,7 @@
 
 // ---------------------------------------------------------------- library
 async function renderLibrary(_p, token) {
-  const [list, badges] = await Promise.all([call('inst:list'), call('home:badges').catch(() => ({}))]); // badges: cached update info, no network
+  const [list, badges, added] = await Promise.all([call('inst:list'), call('home:badges').catch(() => ({})), call('inst:addedCounts').catch(() => ({}))]); // badges: cached update info, no network
   if (stale(token)) return;
   for (const i of list) if (i.state) state.running.set(i.id, i.state);
   const head = h('div', { class: 'page-head' },
@@ -29,6 +29,7 @@ async function renderLibrary(_p, token) {
         h('span', { class: 'row' }, state.running.get(inst.id) === 'running' ? h('span', { class: 'state-dot' }) : null,
           updateBadge(inst.id, badges[inst.id]),
           inst.pack ? sourceBadge(inst.pack.source === 'file' ? 'file' : inst.pack.source) : null,
+          addedBadge(inst, added[inst.id]),
           h('span', { class: 'ellipsis', title: inst.lastPlayed ? `Last played ${ago(inst.lastPlayed)}` : '' }, inst.lastPlayed ? agoShort(inst.lastPlayed) : 'Never played')),
         playButton(inst, 'sm')))));
   }

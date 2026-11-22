@@ -416,12 +416,12 @@ class Modpacks {
   }
 
   /** `manualFile`: the zip the user downloaded from the CurseForge page (kept; only cache copies are deleted). */
-  async installFromSource({ source, projectId, versionId, instanceId, manualFile, report = () => {} }) {
+  async installFromSource({ source, projectId, versionId, instanceId, manualFile, name = null, report = () => {} }) {
     const { project, version, file } = await this.lookupPack(source, projectId, versionId);
     if (!file.url && manualFile) {
       report(0.02, `Using ${path.basename(manualFile)}`);
       return this.installFile(manualFile, {
-        name: project.title,
+        name: name || project.title,
         icon: project.icon,
         instanceId,
         pack: { source, projectId, versionId: version.id, name: project.title, versionName: version.versionNumber, url: project.url },
@@ -436,7 +436,7 @@ class Modpacks {
     report(0.02, `Downloading ${file.filename}`);
     const cached = await this.fetchArchive(source, version.id, file);
     return this.installFile(cached, {
-      name: project.title,
+      name: name || project.title,
       icon: project.icon,
       instanceId,
       pack: { source, projectId, versionId: version.id, name: project.title, versionName: version.versionNumber, url: project.url },

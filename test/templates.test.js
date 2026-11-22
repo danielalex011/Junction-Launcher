@@ -393,6 +393,7 @@ test('pack + template: the template\'s mods land in "Added by you", the pack\'s 
   const chosen = plan.items.filter((i) => i.status === 'add');
   assert.deepEqual(chosen.map((i) => i.title).sort(), ['Alpha Mod', 'Library Mod', 'Prov Dependent']);
   await assert.rejects(templates.apply(pack.id, chosen), /confirm/, 'nothing installs unconfirmed');
+  const before = (await instances.addedCounts())[pack.id] || 0;
   const r = await templates.apply(pack.id, chosen, { confirmed: true, templateId: t.id });
   assert.equal(r.problems.length, 0);
   const mods = await instances.listContent(pack.id, 'mod');
@@ -402,6 +403,17 @@ test('pack + template: the template\'s mods land in "Added by you", the pack\'s 
   assert.ok(!mods.some((m) => m.title === 'Sodium'), 'the conflicting mod was not ticked, so it is not installed');
   const idx = await instances.readIndex(pack.id);
   assert.equal(idx.files['mods/alp-neoforge.jar'].fromTemplate.name, 'Favourites', 'marked as coming from the template');
+  // the instance remembers its template, and the card's "+ N added" counts only what is not the pack's
+  assert.deepEqual((await instances.get(pack.id)).template, { id: t.id, name: 'Favourites' });
+  assert.equal((await instances.addedCounts())[pack.id], before + 3);
+});
+
+test('instances without a stored template (made before this existed) have none and an added count that only counts non-pack files', async () => {
+  const { instances, pack } = await packSetup();
+  assert.equal((await instances.get(pack.id)).template, undefined);
+  const idx = await instances.readIndex(pack.id);
+  const mine = Object.entries(idx.files).filter(([rel, e]) => !e.fromPack && /^mods\//.test(rel)).length;
+  assert.equal((await instances.addedCounts())[pack.id] || 0, mine);
 });
 
 test('add a template to an existing instance that is not a modpack: same review, "already installed"', async () => {

@@ -62,7 +62,7 @@ function instanceCard(inst, badge) {
     h('div', { class: 'grow' },
       h('div', { class: 'c-name', title: inst.name }, inst.name),
       h('div', { class: 'c-sub ellipsis' }, `${LOADER[(inst.loader || {}).type] || 'Vanilla'} · ${inst.mcVersion}`))),
-  h('div', { class: 'c-foot' }, badge || h('span', null), playButton(inst, 'sm')));
+  h('div', { class: 'c-foot' }, h('span', { class: 'row' }, badge, inst.pack ? sourceBadge(inst.pack.source === 'file' ? 'file' : inst.pack.source) : null, addedBadge(inst, inst.addedCount)), playButton(inst, 'sm')));
 }
 
 // ---------------------------------------------------------------- Minecraft news

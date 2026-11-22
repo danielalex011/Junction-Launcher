@@ -99,6 +99,7 @@ function instanceMenu(anchor, inst) {
     { label: 'Add mods from a template…', icon: 'plus', onClick: () => addTemplateDialog(inst) },
     { label: 'Save as template…', icon: 'box', onClick: () => saveTemplateDialog(inst) },
     { label: 'Open mods folder', icon: 'folder', onClick: () => call('inst:openFolder', inst.id, 'mods') },
+    { label: 'Rename…', icon: 'edit', onClick: () => renameInstanceDialog(inst) },
     { label: 'Duplicate', icon: 'copy', onClick: async () => { const c = await call('inst:duplicate', inst.id); toast(`Created ${c.name}`, 'good'); go('instance', { id: c.id }); } },
     { label: 'Delete instance', icon: 'trash', danger: true, onClick: async () => {
       if (!(await confirmDialog(`Delete ${inst.name}?`, 'This deletes the instance folder including worlds, configs and mods. This cannot be undone.', 'Delete', true))) return;
@@ -240,4 +241,23 @@ async function renderInstSettings(inst, root) {
         h('label', { class: 'field' }, 'Join server on launch', f.server))),
     h('div', { class: 'row' }, h('button', { class: 'btn primary', type: 'button', onclick: () => save().catch((e) => toast(e.message, 'error')) }, icon('check'), 'Save changes')),
   );
+}
+
+/** ⋯ → Rename…: only the name changes; the instance folder and everything in it stay as they are. */
+function renameInstanceDialog(inst) {
+  const name = h('input', { type: 'text', value: inst.name, 'aria-label': 'Instance name' });
+  modal({
+    title: `Rename ${inst.name}`,
+    body: [h('label', { class: 'field' }, 'Name', name)],
+    actions: [
+      { label: 'Cancel', class: 'ghost' },
+      { label: 'Rename', class: 'primary', onClick: async () => {
+        const v = name.value.trim();
+        if (!v) throw new Error('Type a name first.');
+        if (v !== inst.name) await call('inst:update', inst.id, { name: v });
+        toast(`Renamed to ${v}`, 'good');
+        go('instance', state.params);
+      } },
+    ],
+  });
 }

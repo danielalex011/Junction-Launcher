@@ -136,6 +136,14 @@ function avatar(item, size = '') {
   return h('div', { class: `avatar ${size}`, style: { background: hashColor(label) } }, label[0]?.toUpperCase() || '?');
 }
 
+/** "+ N added" next to the source chip: what the user added on top of a modpack. Nothing when there is none. The tooltip names the template it came from, if any. */
+function addedBadge(inst, count) {
+  const n = Number(count) || 0;
+  if (n < 1) return null;
+  const tpl = inst?.template?.name;
+  return h('span', { class: 'badge plain', title: `${tpl ? `Template: ${tpl} · ` : ''}${n} ${n === 1 ? 'item' : 'items'} added by you` }, `+ ${n} added`);
+}
+
 function sourceBadge(source, url) {
   return h('span', {
     class: `badge src-${source}${url ? ' clickable' : ''}`,

@@ -405,6 +405,7 @@ class Templates {
     const out = { installed: [], skipped: [], blocked: [], warnings: [], problems: [], copied: [], kept: [] };
     let from = null;
     if (templateId) { const t = await this.get(templateId).catch(() => null); if (t) from = { id: t.id, name: t.name }; }
+    if (from) await this.instances.update(instId, { template: from }).catch(() => {}); // remembered for the instance card; a failure here never stops the install
     if (copyFiles && templateId) {
       try { Object.assign(out, await this.copyFiles(instId, templateId)); } catch (e) { out.problems.push({ title: 'Settings files', why: describeError(e) }); }
     }
