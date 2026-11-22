@@ -210,7 +210,8 @@ async function reviewHomeUpdates(u, btn) {
   if (u.pack) { go('instance', { id: u.instanceId, review: u.pack.versionId }); return; }
   btn.disabled = true;
   try {
-    const inst = await call('inst:get', u.instanceId);
+    const inst = await call('inst:get', u.instanceId).catch((e) => { if (/Instance not found/.test(e.message)) return null; throw e; });
+    if (!inst) { go('library'); return; } // deleted since the list was drawn
     const res = (await call('content:checkUpdates', u.instanceId)).filter((x) => !x.error);
     if (!res.length) { toast(`${inst.name} is already up to date.`, 'good'); await refreshHome(undefined, false); afterUpdateReview(); return; }
     updateReviewDialog(inst, res, afterUpdateReview);

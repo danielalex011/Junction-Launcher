@@ -63,3 +63,21 @@ test('error log writes a line, hides tokens and keeps the file small', () => {
   assert.equal(scrub('access_token: "abcd1234"'), 'access_token: "[hidden]"');
   assert.equal(new ErrorLog('/nonexistent\0bad').write('window', 'x'), false); // never throws
 });
+
+test('dialogs sit above the Activity panel, and opening one closes the panel', () => {
+  const css = read('styles.css');
+  const z = (re) => Number(re.exec(css)[1]);
+  const overlay = z(/\.overlay \{[^}]*z-index: (\d+)/);
+  const panel = z(/\.activity-panel \{[^}]*z-index: (\d+)/);
+  const menu = z(/\.menu \{[^}]*z-index: (\d+)/);
+  const toasts = z(/#toasts \{[^}]*z-index: (\d+)/);
+  assert.ok(overlay > panel, 'a dialog is never hidden behind the Activity panel');
+  assert.ok(menu > overlay && toasts > overlay, 'menus and toasts stay on top of dialogs');
+  assert.match(read('dialogs.js'), /function modal\([^)]*\) \{[^}]*closeActivity\(\)/s, 'modal() closes the Activity panel');
+});
+
+test('the template review ignores clicks on the backdrop; a link to a deleted instance goes to the Library', () => {
+  assert.match(read('dialogs.js'), /backdropClose && e\.target === overlay/);
+  assert.match(read('templates.js'), /backdropClose: false/);
+  assert.match(read('instance.js'), /Instance not found[\s\S]{0,80}go\('library'\)/);
+});

@@ -9,8 +9,10 @@ function toast(msg, type = 'info', ms = 4500) {
   setTimeout(() => t.remove(), type === 'error' ? Math.max(ms, 8000) : ms);
 }
 
-function modal({ title, body, actions = [], wide = false, onClose, headExtra }) {
+/** backdropClose: false keeps the window open when the dark area around it is clicked (only Back, X or Esc close it). */
+function modal({ title, body, actions = [], wide = false, onClose, headExtra, backdropClose = true }) {
   const root = $('#modal-root');
+  if (typeof closeActivity === 'function' && activityUi?.open) closeActivity(); // the Activity panel would sit on top of (or behind) the window
   let closed = false;
   const close = () => {
     if (closed) return;
@@ -40,7 +42,7 @@ function modal({ title, body, actions = [], wide = false, onClose, headExtra }) 
     h('div', { class: 'm-head' }, headExtra || null, h('h2', null, title), h('button', { class: 'btn ghost icon', type: 'button', onclick: close, title: 'Close' }, icon('x'))),
     h('div', { class: 'm-body' }, body),
     foot);
-  const overlay = h('div', { class: 'overlay', onmousedown: (e) => { if (e.target === overlay) close(); } }, m);
+  const overlay = h('div', { class: 'overlay', onmousedown: (e) => { if (backdropClose && e.target === overlay) close(); } }, m);
   root.append(overlay);
   document.addEventListener('keydown', onKey);
   return { close, el: m, body: $('.m-body', m) };

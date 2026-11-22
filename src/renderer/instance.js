@@ -12,7 +12,12 @@ async function refreshInstanceHeader() {
 
 async function renderInstance(params, token) {
   const { id, tab = 'mod' } = params;
-  const inst = await call('inst:get', id);
+  let inst;
+  try { inst = await call('inst:get', id); } catch (e) {
+    // A link to an instance that was deleted (Activity, quick search, Home...): back to the Library, no error page.
+    if (/Instance not found/.test(e.message)) { if (!stale(token)) go('library'); return; }
+    throw e;
+  }
   if (stale(token)) return;
   currentInstance = inst;
   if (inst.state) state.running.set(id, inst.state);
@@ -97,7 +102,7 @@ function instanceMenu(anchor, inst) {
     { label: 'Duplicate', icon: 'copy', onClick: async () => { const c = await call('inst:duplicate', inst.id); toast(`Created ${c.name}`, 'good'); go('instance', { id: c.id }); } },
     { label: 'Delete instance', icon: 'trash', danger: true, onClick: async () => {
       if (!(await confirmDialog(`Delete ${inst.name}?`, 'This deletes the instance folder including worlds, configs and mods. This cannot be undone.', 'Delete', true))) return;
-      try { await call('inst:delete', inst.id); toast(`Deleted ${inst.name}`); go('library'); } catch (e) { toast(e.message, 'error'); }
+      try { await call('inst:delete', inst.id); go('library'); toast(`Deleted ${inst.name}`); } catch (e) { toast(e.message, 'error'); }
     } });
   popupMenu(anchor, items);
 }

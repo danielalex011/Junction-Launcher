@@ -102,7 +102,7 @@ a { color: var(--accent); }
 .account-chip .a-sub { color: var(--muted); font-size: 11px; }
 .account-chip .ico { color: var(--muted); }
 .account-chip[aria-expanded=true] { border-color: var(--accent); }
-.acct-menu { position: fixed; z-index: 60; background: var(--panel-2); border: 1px solid var(--border); border-radius: var(--radius); padding: 6px; box-shadow: 0 16px 40px rgba(0,0,0,.45); max-height: calc(100vh - 24px); overflow: auto; }
+.acct-menu { position: fixed; z-index: 66; background: var(--panel-2); border: 1px solid var(--border); border-radius: var(--radius); padding: 6px; box-shadow: 0 16px 40px rgba(0,0,0,.45); max-height: calc(100vh - 24px); overflow: auto; }
 .acct-menu hr { border: 0; border-top: 1px solid var(--border); margin: 6px 0; }
 .acct-row { display: flex; align-items: center; gap: 4px; border-radius: var(--radius-sm); }
 .acct-row.active { background: var(--panel-3); }
@@ -355,22 +355,24 @@ details.adv > summary:hover { color: var(--text); }
 
 /* ---------- modal ---------- */
 #modal-root:empty { display: none; }
-.overlay { position: fixed; inset: 0; background: rgba(5,6,9,.66); display: flex; align-items: center; justify-content: center; z-index: 50; padding: 24px; animation: fade .12s; }
+.overlay { position: fixed; inset: 0; background: rgba(5,6,9,.66); display: flex; align-items: center; justify-content: center; z-index: 65; padding: 24px; animation: fade .12s; } /* above the Activity panel (60); menus and toasts stay above it */
 @keyframes fade { from { opacity: 0; } }
 .modal { background: var(--panel); border: 1px solid var(--border); border-radius: 14px; width: min(560px, 100%); max-height: calc(100vh - 48px); display: flex; flex-direction: column; box-shadow: 0 30px 80px rgba(0,0,0,.5); }
 .modal.wide { width: min(980px, 100%); height: calc(100vh - 48px); }
 .modal.wide.fit { height: auto; }
 .modal .m-head { display: flex; align-items: center; gap: 12px; padding: 16px 18px; border-bottom: 1px solid var(--border); }
-.modal .m-head h2 { margin: 0; font-size: 17px; flex: 1; }
+.modal .m-head h2 { margin: 0; font-size: 17px; flex: 1; min-width: 0; overflow-wrap: anywhere; }
 .modal .m-body { padding: 18px; overflow: auto; display: flex; flex-direction: column; gap: 14px; flex: 1; min-height: 0; }
-.modal .m-foot { display: flex; justify-content: flex-end; gap: 8px; padding: 14px 18px; border-top: 1px solid var(--border); }
+.modal .m-foot { display: flex; justify-content: flex-end; flex-wrap: wrap; gap: 8px; padding: 14px 18px; border-top: 1px solid var(--border); }
+.modal .m-foot .btn { max-width: 100%; white-space: normal; text-align: center; }
+.modal .m-body p { overflow-wrap: anywhere; }
 .code-box { font-family: ui-monospace, Consolas, monospace; font-size: 32px; letter-spacing: 6px; font-weight: 700; text-align: center; padding: 18px; background: var(--bg); border: 1px dashed var(--border); border-radius: var(--radius); user-select: all; }
 .desc-frame { width: 100%; flex: 1; min-height: 300px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--panel); }
 .vlist .item { grid-template-columns: minmax(0, 1fr) 160px 90px auto; }
 .spinner { width: 18px; height: 18px; border: 2px solid var(--panel-3); border-top-color: var(--accent); border-radius: 50%; animation: spin .8s linear infinite; flex: none; }
 @keyframes spin { to { transform: rotate(360deg); } }
 .loading { display: flex; gap: 10px; align-items: center; color: var(--muted); padding: 30px; justify-content: center; }
-.menu { position: fixed; z-index: 60; background: var(--panel-2); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 4px; min-width: 210px; box-shadow: 0 16px 40px rgba(0,0,0,.45); }
+.menu { position: fixed; z-index: 66; background: var(--panel-2); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 4px; min-width: 210px; box-shadow: 0 16px 40px rgba(0,0,0,.45); }
 .menu button { display: flex; width: 100%; gap: 9px; align-items: center; background: none; border: 0; padding: 8px 10px; border-radius: 5px; cursor: pointer; text-align: left; }
 .menu button:hover { background: var(--panel-3); }
 .menu button.danger { color: var(--bad); }

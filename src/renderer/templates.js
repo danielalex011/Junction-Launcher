@@ -162,6 +162,7 @@ function templateReviewDialog(plan, onConfirm, opts = {}) {
       } },
     ],
     onClose: () => { if (!confirmed && opts.onDismiss) opts.onDismiss(); },
+    backdropClose: false, // a stray click beside the window must not count as "Back" (which can open the Keep / Remove question)
   });
   m.el.style.width = 'min(820px, 100%)';
   btn = m.el.querySelectorAll('.m-foot .btn')[1];
@@ -224,12 +225,12 @@ async function packTemplateFlow(pack, templateId) {
       onDismiss: async () => {
         const remove = await confirmDialog(`Keep ${made.name} without the template?`,
           `${made.name} is already installed. Keep it as it is, without anything from “${plan.template.name}”, or remove it?`,
-          `Remove ${made.name}`, true, `Keep ${made.name} without the template`);
+          'Remove it', true, 'Keep it');
         if (!remove) { toast(`Kept ${made.name} without the template`); return; }
         try {
           await call('inst:delete', made.id);
           toast(`Removed ${made.name}`);
-          if (state.view === 'instance' && state.params.id === made.id) go('library');
+          go('library');
         } catch (e) { toast(e.message, 'error'); }
       },
     }), 0);
