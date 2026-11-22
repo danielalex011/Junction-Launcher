@@ -5,7 +5,7 @@
 //   npm run screenshots -- home skins # only these
 //
 // It starts the app from source (electron .) once per picture, against a throwaway data folder with demo data and the
-// simulated network (tools/seed-home.js + tools/mock-network.js), and uses the app's own JUNCTION_SCREENSHOT hook, which
+// simulated network (tools/seed-shots.js + tools/shots-network.js, which build on the test fixtures without changing them), and uses the app's own JUNCTION_SCREENSHOT hook, which
 // saves webContents.capturePage(). Nothing real can show up in the pictures:
 //   - the data folder is generated, the account is called "Player" and nothing talks to the internet;
 //   - while capturing, local paths (data folder, temp folder, home folder, user name) are replaced on screen;
@@ -132,7 +132,8 @@ function runElectron({ env, userData, label }) {
   const data = path.join(tmp, 'data');
   const userData = path.join(tmp, 'ud');
   console.log('Making demo data…');
-  execFileSync(process.execPath, [path.join(__dirname, 'seed-home.js'), data], { stdio: 'ignore' });
+  const hashes = path.join(tmp, 'shots-hashes.json');
+  execFileSync(process.execPath, [path.join(__dirname, 'seed-shots.js'), data, hashes], { stdio: 'ignore' });
   // The signed-in account is called "Player" in every picture.
   const accFile = path.join(data, 'accounts.json');
   const acc = JSON.parse(fs.readFileSync(accFile, 'utf8'));
@@ -140,7 +141,7 @@ function runElectron({ env, userData, label }) {
   fs.writeFileSync(accFile, JSON.stringify(acc));
 
   fs.mkdirSync(outDir, { recursive: true });
-  const env = { ...process.env, JUNCTION_DATA: data, JUNCTION_FETCH_MOCK: path.join(__dirname, 'mock-network.js') };
+  const env = { ...process.env, JUNCTION_DATA: data, JUNCTION_FETCH_MOCK: path.join(__dirname, 'shots-network.js'), JUNCTION_SHOTS_HASHES: hashes };
   delete env.ELECTRON_RUN_AS_NODE;
   for (const k of Object.keys(env)) if (/^JUNCTION_(MS_CLIENT_ID|CF_API_KEY)$|TOKEN|SECRET|PASSWORD|API_KEY/i.test(k)) delete env[k];
   const home = os.homedir();
