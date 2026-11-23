@@ -2,6 +2,14 @@
 
 Junction is an Electron Minecraft launcher that installs mods/modpacks from **both Modrinth and CurseForge**. Plain JavaScript (CommonJS), no framework, no TypeScript, no bundler. The maintainer develops on **Windows** and commits with GitHub Desktop.
 
+## Commit messages
+- The first line is the summary itself, e.g. `v0.1.44: Warn about unknown files`.
+  Never start it with "Summary:" and never put two spaces after anything.
+- Leave out empty sections; don't write "(nothing)".
+- Before suggesting a message, check `git log`. If earlier work in this session is
+  already committed, write a message for only the uncommitted changes.
+- Follow-ups that don't bump the version reuse the current version in the first line.
+
 ## Commands
 
 ```bash
