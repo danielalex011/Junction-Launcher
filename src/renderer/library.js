@@ -104,7 +104,11 @@ async function handleInstallResult(r, instId) {
 
 async function importPackFile(filePath) {
   try {
-    const r = await call('pack:importFile', filePath || null);
+    let r = await call('pack:importFile', filePath || null);
+    if (r?.confirmUnknown) {
+      if (!(await unknownFilesDialog(r.confirmUnknown))) return;
+      r = await call('pack:importFile', r.file, true);
+    }
     if (!r) return;
     await handleInstallResult(r);
     go('instance', { id: r.instance.id });

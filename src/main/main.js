@@ -1,6 +1,7 @@
 'use strict';
 const { app, BrowserWindow, ipcMain, dialog, shell, safeStorage, Menu, protocol, net, nativeImage, clipboard, Notification } = require('electron');
 const os = require('os');
+const crypto = require('crypto');
 const { pathToFileURL } = require('url');
 const fs = require('fs');
 const path = require('path');
@@ -327,13 +328,25 @@ function registerIpc() {
     const r = await ctx.tasks.run(`Sending ${list.length} file${list.length === 1 ? '' : 's'}`, (t) => content.sendToInstance(id, list, targetId, { report: t.update }), { instanceId: targetId, kind: 'mod', icon: 'mod' });
     return { ...r, blockedSession: startBlockedSession(targetId, r.blocked) };
   });
+  const pendingAdds = new Map();
   handle('content:addFiles', async (id, type) => {
     const filters = type === 'mod' ? [{ name: 'Mods', extensions: ['jar'] }] : [{ name: 'Packs', extensions: ['zip'] }];
     const r = await dialog.showOpenDialog(win, { properties: ['openFile', 'multiSelections'], filters });
     if (r.canceled) return [];
     const scan = await ctx.tasks.run('Checking files', () => content.scanLocalFiles(r.filePaths), { instanceId: id }).catch(() => null);
-    if (!(await confirmUnknownFiles(scan))) return [];
+    if (hasFindings(scan)) {
+      const token = crypto.randomUUID();
+      pendingAdds.set(token, { id, type, paths: r.filePaths });
+      return { confirmUnknown: describeUnknown(scan), token };
+    }
     return ctx.tasks.run('Adding files', () => content.addLocalFiles(id, r.filePaths, type), { instanceId: id });
+  });
+  // The user said "Install anyway" for files picked in content:addFiles.
+  handle('content:addPending', async (token) => {
+    const p = pendingAdds.get(token);
+    if (!p) throw new Error('That choice has expired. Pick the files again.');
+    pendingAdds.delete(token);
+    return ctx.tasks.run('Adding files', () => content.addLocalFiles(p.id, p.paths, p.type), { instanceId: p.id });
   });
   handle('content:removed', async (id) => content.removedFiles(id));
   handle('content:identify', async (id, rels) => ctx.tasks.run('Identifying files', (t) => content.identify(id, Array.isArray(rels) ? relList(rels) : null, t.update), { instanceId: id }));
@@ -439,22 +452,17 @@ function registerIpc() {
     });
     return r.response === 0;
   };
-  // Files that aren't on Modrinth or CurseForge get a warning first. "Don't install" is the default button; no wording says a file is safe.
-  const confirmUnknownFiles = async (scan) => {
-    if (!hasFindings(scan)) return true;
-    const d = describeUnknown(scan);
-    const r = await dialog.showMessageBox(win, { type: 'warning', title: d.title, message: d.message, detail: d.detail, buttons: d.buttons, defaultId: 0, cancelId: 0, noLink: true });
-    return r.response === 1;
-  };
+  // Files that aren't on Modrinth or CurseForge get a warning first, shown by the renderer in Junction's own dark dialog.
+  // The handlers answer { confirmUnknown } and the renderer asks again with the user's answer. No wording says a file is safe.
   handle('storage:space', async () => {
     const d = await diskSpace(ctx.root);
     return { path: ctx.root, ...(d || { free: null, total: null }), minFreeBytes: MIN_FREE_BYTES, minFreePercent: MIN_FREE_PERCENT };
   });
   handle('pack:installFromSource', async (opts) => {
     const manualFile = opts.source === 'curseforge' ? await waitForManualPack(opts) : null;
-    if (!(await roomForPack(() => (manualFile ? modpacks.estimateArchive(manualFile) : modpacks.estimateFromSource(opts))))) return { cancelled: true };
     const scan = await (manualFile ? modpacks.scanArchive(manualFile) : modpacks.scanFromSource(opts)).catch(() => null);
-    if (!(await confirmUnknownFiles(scan))) return { cancelled: true };
+    if (hasFindings(scan) && !opts.acceptUnknown) return { confirmUnknown: describeUnknown(scan) };
+    if (!(await roomForPack(() => (manualFile ? modpacks.estimateArchive(manualFile) : modpacks.estimateFromSource(opts))))) return { cancelled: true };
     const r = await ctx.tasks.run(`Installing ${opts.title || 'modpack'}`, async (t) => {
       const res = await modpacks.installFromSource({ ...opts, manualFile, report: t.update });
       try { await packlink.label(res.instance.id); } catch (e) { res.warnings = [...(res.warnings || []), `Couldn't sort pack content from your additions yet: ${e.message}`]; }
@@ -462,16 +470,16 @@ function registerIpc() {
     }, { kind: 'modpack', icon: 'pack', heavy: true, createsInstance: true });
     return { ...r, blockedSession: startBlockedSession(r.instance.id, r.blocked) };
   });
-  handle('pack:importFile', async (filePath) => {
+  handle('pack:importFile', async (filePath, acceptUnknown = false) => {
     let file = filePath;
     if (!file) {
       const r = await dialog.showOpenDialog(win, { properties: ['openFile'], filters: [{ name: 'Modpacks', extensions: ['mrpack', 'zip'] }] });
       if (r.canceled) return null;
       [file] = r.filePaths;
     }
-    if (!(await roomForPack(() => modpacks.estimateArchive(file)))) return null;
     const scan = await modpacks.scanArchive(file).catch(() => null);
-    if (!(await confirmUnknownFiles(scan))) return null;
+    if (hasFindings(scan) && acceptUnknown !== true) return { confirmUnknown: describeUnknown(scan), file };
+    if (!(await roomForPack(() => modpacks.estimateArchive(file)))) return null;
     const r = await ctx.tasks.run(`Importing ${path.basename(file)}`, (t) => modpacks.installFile(file, { report: t.update }), { kind: 'modpack', icon: 'pack', heavy: true, createsInstance: true });
     return { ...r, blockedSession: startBlockedSession(r.instance.id, r.blocked) };
   });

@@ -408,7 +408,7 @@ async function renderContentTab(inst, type, root, token) {
     updateAllBtn,
     updateBtn,
     h('button', { class: 'btn', type: 'button', onclick: async () => {
-      try { const added = await call('content:addFiles', inst.id, type); if (added?.length) { toast(`Added ${added.length} ${added.length === 1 ? 'file' : 'files'}`, 'good'); renderContentTab(inst, type, root, renderToken); } } catch (e) { toast(e.message, 'error'); }
+      try { let added = await call('content:addFiles', inst.id, type); if (added?.confirmUnknown) added = (await unknownFilesDialog(added.confirmUnknown)) ? await call('content:addPending', added.token) : []; if (added?.length) { toast(`Added ${added.length} ${added.length === 1 ? 'file' : 'files'}`, 'good'); renderContentTab(inst, type, root, renderToken); } } catch (e) { toast(e.message, 'error'); }
     } }, icon('file'), 'Add files'),
     h('button', { class: 'btn primary', type: 'button', onclick: () => go('browse', { type, instanceId: inst.id }) }, icon('plus'), `Add ${type === 'mod' ? 'mods' : TYPES[type].toLowerCase()}`));
   if (linked) updateBtn.title = `Checks the files you added. ${packName}'s own files update with the pack.`;

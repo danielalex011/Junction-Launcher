@@ -159,7 +159,7 @@ async function quickInstall(hit, inst, versionId, sourceOverride) {
       ({ source, projectId } = choice);
     }
     if (hit.type === 'modpack') {
-      const r = await call('pack:installFromSource', { source, projectId, versionId, title: hit.title });
+      const r = await installPackChecked({ source, projectId, versionId, title: hit.title });
       if (r.cancelled) return false; // low disk space and the user chose Cancel
       await handleInstallResult(r);
       go('instance', { id: r.instance.id });

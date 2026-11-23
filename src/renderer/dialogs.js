@@ -63,6 +63,38 @@ function confirmDialog(title, text, okLabel = 'OK', danger = false, cancelLabel 
   });
 }
 
+/**
+ * Warning for files that aren't on Modrinth or CurseForge. d = { title, message, detail, buttons } from the core.
+ * Resolves true only for "Install anyway"; "Don't install", Esc, X and a click outside all mean no.
+ */
+function unknownFilesDialog(d) {
+  return new Promise((resolve) => {
+    let answered = false;
+    modal({
+      title: d.title,
+      backdropClose: false,
+      body: h('div', null,
+        h('div', { class: 'notice warn', style: { margin: '0 0 12px' } }, icon('alert'), h('strong', null, d.message)),
+        h('div', { style: { whiteSpace: 'pre-wrap', overflowWrap: 'anywhere', lineHeight: 1.5 } }, d.detail)),
+      actions: [
+        { label: d.buttons[1], class: 'ghost', onClick: () => { answered = true; resolve(true); } },
+        { label: d.buttons[0], class: 'primary', onClick: () => { answered = true; resolve(false); } },
+      ],
+      onClose: () => { if (!answered) resolve(false); },
+    });
+  });
+}
+
+/** Installs a pack from Modrinth / CurseForge; asks first when it brings files neither platform hosts. */
+async function installPackChecked(opts) {
+  let r = await call('pack:installFromSource', opts);
+  if (r?.confirmUnknown) {
+    if (!(await unknownFilesDialog(r.confirmUnknown))) return { cancelled: true };
+    r = await call('pack:installFromSource', { ...opts, acceptUnknown: true });
+  }
+  return r;
+}
+
 function popupMenu(anchor, items) {
   document.querySelectorAll('.menu').forEach((m) => m.remove());
   const menu = h('div', { class: 'menu' }, items.map((it) => (it === '-' ? h('hr') : h('button', {

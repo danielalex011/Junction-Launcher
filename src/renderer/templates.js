@@ -213,7 +213,7 @@ async function addTemplateDialog(inst) {
 async function packTemplateFlow(pack, templateId, name = '') {
   try {
     toast(`Installing ${pack.title}. Follow it in Activity: the template review opens when the modpack is in.`, 'info', 8000);
-    const r = await call('pack:installFromSource', { source: pack.source, projectId: pack.projectId, versionId: pack.versionId, title: pack.title, name: name || null });
+    const r = await installPackChecked({ source: pack.source, projectId: pack.projectId, versionId: pack.versionId, title: pack.title, name: name || null });
     if (r.cancelled) return; // low disk space and the user chose Cancel
     await handleInstallResult(r);
     go('instance', { id: r.instance.id });
