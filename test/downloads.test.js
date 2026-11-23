@@ -111,7 +111,7 @@ test('error messages are plain sentences', () => {
   assert.equal(describeError(new HttpError(429, 'https://edge.forgecdn.net/f.jar', '')), "CurseForge's download server is busy right now and asked us to slow down (HTTP 429)");
   assert.equal(describeError(new HttpError(404, 'https://cdn.modrinth.com/a.jar', '<html>nope</html>')), "Modrinth's download server couldn't find the file (HTTP 404)");
   assert.equal(describeError(new Error('Download stalled: https://cdn.modrinth.com/a.jar')), 'The connection timed out');
-  assert.equal(describeError(new Error('SHA-1 mismatch for a.jar (expected x, got y)')), 'The downloaded file was damaged (checksum mismatch)');
+  assert.match(describeError(new Error('SHA-1 mismatch for a.jar (expected x, got y)')), /didn't match the checksum.*deleted it/);
   assert.equal(describeError(Object.assign(new TypeError('fetch failed'), { cause: { code: 'ENOTFOUND' } })), "Couldn't connect. Check your internet connection");
   for (const e of [html, new HttpError(500, 'https://x.test/a', '<h1>boom</h1>')]) assert.ok(!/[<>]|https?:/.test(describeError(e)));
 });

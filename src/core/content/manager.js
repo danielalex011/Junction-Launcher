@@ -13,6 +13,7 @@ const { describeError, HttpError } = require('../http');
 
 const { pickVersion } = require('../sources/choose');
 const { sameVariant } = require('./variant');
+const { findUnknown, entriesFromPaths } = require('./vetting');
 const CF_RELEASE = { 1: 'release', 2: 'beta', 3: 'alpha' }; // CurseForge's releaseType numbers in latestFilesIndexes
 
 /** HTTP errors already name the site; other failures (no connection, ...) get the site put in front. */
@@ -411,6 +412,11 @@ class ContentManager {
     return out;
   }
 
+  /** Looks files the user picked up by hash before they're copied in. Returns { unknown, unchecked, cfSkipped }. */
+  async scanLocalFiles(filePaths) {
+    return findUnknown(this.sources, entriesFromPaths(filePaths));
+  }
+
   async addLocalFiles(instId, filePaths, type = 'mod') {
     const dir = path.join(this.instances.gameDir(instId), TYPE_DIR[type]);
     await ensureDir(dir);
@@ -547,7 +553,72 @@ class ContentManager {
         }
       } catch (e) { updates.push({ error: siteError('CurseForge', e) }); }
     }
+    try { await this.checkRemoved(instId); } catch { /* the badges stay as they were; updates still show */ }
     return updates;
+  }
+
+  /**
+   * Flags installed files whose version (or whole project) has been taken down from the platform they came from.
+   * The flag is kept in content.json (`removed: { platform, what: 'version'|'project', at }`) and shown as a red badge.
+   * A file is only flagged when the platform answered and left that id out; a failed request changes nothing.
+   * Covers every linked file, including a pack's own (those can't be updated one by one, but they can be turned off).
+   */
+  async checkRemoved(instId) {
+    const idx = await this.instances.readIndex(instId);
+    const linked = Object.entries(idx.files).filter(([, e]) => (e.source === 'modrinth' || e.source === 'curseforge') && e.versionId != null && e.projectId != null);
+    const gone = {};
+    const checked = new Set();
+    const mr = linked.filter(([, e]) => e.source === 'modrinth');
+    if (mr.length) {
+      try {
+        const ids = [...new Set(mr.map(([, e]) => String(e.versionId)))];
+        const have = new Set();
+        for (let i = 0; i < ids.length; i += 100) for (const v of await this.sources.modrinth.versionsById(ids.slice(i, i + 100))) have.add(String(v.id));
+        const missing = mr.filter(([, e]) => !have.has(String(e.versionId)));
+        const projects = missing.length
+          ? new Set((await this.sources.modrinth.projects([...new Set(missing.map(([, e]) => e.projectId))])).map((p) => String(p.id)))
+          : new Set();
+        for (const [rel, e] of mr) {
+          checked.add(rel);
+          if (!have.has(String(e.versionId))) gone[rel] = { platform: 'Modrinth', what: projects.has(String(e.projectId)) ? 'version' : 'project' };
+        }
+      } catch { /* try again at the next check */ }
+    }
+    const cf = linked.filter(([, e]) => e.source === 'curseforge');
+    if (cf.length && this.sources.curseforge.configured()) {
+      try {
+        const have = new Set((await this.sources.curseforge.files([...new Set(cf.map(([, e]) => e.versionId))])).map((v) => String(v.id)));
+        const missing = cf.filter(([, e]) => !have.has(String(e.versionId)));
+        const projects = missing.length
+          ? new Set((await this.sources.curseforge.mods([...new Set(missing.map(([, e]) => e.projectId))])).map((m) => String(m.id)))
+          : new Set();
+        for (const [rel, e] of cf) {
+          checked.add(rel);
+          if (!have.has(String(e.versionId))) gone[rel] = { platform: 'CurseForge', what: projects.has(String(e.projectId)) ? 'version' : 'project' };
+        }
+      } catch { /* same */ }
+    }
+    if (!checked.size) return { removed: 0 };
+    await this.instances.withIndex(instId, (fresh) => {
+      for (const rel of checked) {
+        const e = fresh.files[rel];
+        if (!e) continue;
+        if (gone[rel]) e.removed = e.removed?.platform === gone[rel].platform && e.removed.what === gone[rel].what ? e.removed : { ...gone[rel], at: Date.now() };
+        else delete e.removed;
+      }
+    });
+    return { removed: Object.keys(gone).length };
+  }
+
+  /** The files flagged by checkRemoved(), across mods / resource packs / shaders / datapacks, for the banner on the instance page. */
+  async removedFiles(instId) {
+    const out = [];
+    for (const type of Object.keys(TYPE_DIR)) {
+      for (const it of await this.instances.listContent(instId, type)) {
+        if (it.removed) out.push({ file: it.file, title: it.title, fileName: it.fileName, type, enabled: it.enabled, platform: it.removed.platform, what: it.removed.what });
+      }
+    }
+    return out;
   }
 
   /** Newer compatible versions of a project than the one installed (newest first), for the update picker. */

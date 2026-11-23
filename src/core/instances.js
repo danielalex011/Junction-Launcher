@@ -217,6 +217,7 @@ class Instances {
         modId: entry.meta?.modId || null,
         loader: entry.meta?.loader || null,
         pinned: Boolean(entry.pinned),
+        removed: entry.removed ? { platform: entry.removed.platform, what: entry.removed.what } : null,
         fromPack: Boolean(entry.fromPack),
         packChanged: Boolean(entry.fromPack && entry.packChanged),
         sides: entry.sides || null,

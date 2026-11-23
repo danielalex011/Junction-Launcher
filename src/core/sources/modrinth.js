@@ -138,12 +138,12 @@ class Modrinth {
     return (await this.ctx.http.json(`${API}/versions?ids=${enc(JSON.stringify(ids))}`)).map(normalizeVersion);
   }
 
-  /** sha1 -> normalized version, for files that exist on Modrinth. */
-  async versionsByHash(sha1s) {
+  /** hash -> normalized version, for files that exist on Modrinth. algorithm: 'sha1' (default) or 'sha512'. */
+  async versionsByHash(sha1s, algorithm = 'sha1') {
     if (!sha1s.length) return {};
     const out = {};
     for (let i = 0; i < sha1s.length; i += 500) {
-      const r = await this.ctx.http.json(`${API}/version_files`, { method: 'POST', json: { hashes: sha1s.slice(i, i + 500), algorithm: 'sha1' } });
+      const r = await this.ctx.http.json(`${API}/version_files`, { method: 'POST', json: { hashes: sha1s.slice(i, i + 500), algorithm } });
       for (const [h, v] of Object.entries(r)) out[h] = normalizeVersion(v);
     }
     return out;

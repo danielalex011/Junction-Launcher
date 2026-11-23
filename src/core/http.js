@@ -28,6 +28,15 @@ class HttpError extends Error {
   }
 }
 
+/** The bytes that arrived are not the file the platform's API described (damaged, swapped or tampered with). */
+class HashMismatchError extends Error {
+  constructor(filename, algo) {
+    super(`${algo} mismatch for ${filename}`);
+    this.code = 'HASH_MISMATCH';
+    this.filename = filename;
+  }
+}
+
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 /** Retry-After is either seconds or a date. Returns milliseconds (0 if absent), capped at a minute. */
@@ -40,6 +49,7 @@ function parseRetryAfter(value) {
 
 /** Would trying again help? Rate limits, server errors, dropped connections, stalls and damaged downloads: yes. Bad requests and full disks: no. */
 function isRetryable(e) {
+  if (e instanceof HashMismatchError) return false; // download() already tried once more; a third try won't change what the server sends
   if (e instanceof HttpError) return e.status === 429 || e.status === 408 || e.status >= 500;
   if (e && typeof e.code === 'string' && /^E(NOSPC|ACCES|PERM|ROFS|ISDIR|MFILE|NOENT)$/.test(e.code)) return false;
   return true;
@@ -83,7 +93,10 @@ function describeError(e) {
   if (e?.name === 'AbortError' || e?.name === 'TimeoutError' || /stalled|timed? ?out|aborted/i.test(msg)) return 'The connection timed out';
   if (/ENOTFOUND|EAI_AGAIN|ECONNREFUSED|fetch failed/i.test(code + msg)) return "Couldn't connect. Check your internet connection";
   if (/ECONNRESET|socket hang up|terminated/i.test(code + msg)) return 'The connection was interrupted';
-  if (/(SHA-1|SHA-512) mismatch/i.test(msg)) return 'The downloaded file was damaged (checksum mismatch)';
+  if (e instanceof HashMismatchError || /(SHA-1|SHA-512) mismatch/i.test(msg)) {
+    const who = e?.filename ? `${e.filename} didn't` : "The downloaded file didn't";
+    return `${who} match the checksum published for it, so Junction deleted it. Try again later. If it keeps happening, don't use this file`;
+  }
   return stripTags(msg.replace(/https?:\/\/\S+/g, '')).slice(0, 160) || 'Unknown error';
 }
 
@@ -235,7 +248,8 @@ class Http {
     const name = path.basename(dest);
     let lastErr;
     let attempt = 0;
-    while (attempt <= retries) {
+    let mismatches = 0;
+    while (attempt <= retries || (lastErr instanceof HashMismatchError && mismatches === 1)) {
       if (cancel?.aborted) throw new CancelledError();
       if (task) await task.waitIfPaused(); // rejects with CancelledError if cancelled while paused
       const tmp = `${dest}.part-${crypto.randomBytes(3).toString('hex')}`;
@@ -291,10 +305,10 @@ class Http {
           await new Promise((resolve, reject) => out.end((err) => (err ? reject(err) : resolve())));
         }
         const got1 = h1.digest('hex');
-        if (sha1 && got1 !== sha1.toLowerCase()) throw new Error(`SHA-1 mismatch for ${path.basename(dest)} (expected ${sha1}, got ${got1})`);
+        if (sha1 && got1 !== sha1.toLowerCase()) throw new HashMismatchError(path.basename(dest), 'SHA-1');
         if (h512) {
           const got512 = h512.digest('hex');
-          if (got512 !== sha512.toLowerCase()) throw new Error(`SHA-512 mismatch for ${path.basename(dest)}`);
+          if (got512 !== sha512.toLowerCase()) throw new HashMismatchError(path.basename(dest), 'SHA-512');
         }
         await fsp.rename(tmp, dest);
         ok = true;
@@ -304,7 +318,11 @@ class Http {
         await fsp.rm(tmp, { force: true }).catch(() => {});
         if (why === 'cancel' || cancel?.aborted) throw new CancelledError();
         if (why === 'pause') wait = -1; // not a failure: wait for Resume, then start this file again
-        else if (!isRetryable(e) || attempt >= retries) { task?.noteFailure(name, describeError(e)); break; }
+        else if (e instanceof HashMismatchError) {
+          // The temp file is already gone. One more try straight away; a second mismatch is final.
+          if (++mismatches > 1) { task?.noteFailure(name, describeError(e)); break; }
+          wait = 0;
+        } else if (!isRetryable(e) || attempt >= retries) { task?.noteFailure(name, describeError(e)); break; }
         else wait = this.backoff(attempt, e);
       } finally {
         clearTimeout(timer);
@@ -321,4 +339,4 @@ class Http {
   }
 }
 
-module.exports = { Http, HttpError, USER_AGENT, describeError, isRetryable, parseRetryAfter };
+module.exports = { Http, HttpError, HashMismatchError, USER_AGENT, describeError, isRetryable, parseRetryAfter };

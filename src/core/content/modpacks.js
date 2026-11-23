@@ -13,6 +13,7 @@ const { pickFile } = require('./manager');
 const { pickVersion } = require('../sources/choose');
 const { describeError, isRetryable } = require('../http');
 const { currentTask } = require('../taskcontext');
+const { findUnknown, entriesFromPack } = require('./vetting');
 const { safeJoin, ensureDir, pool, exists, hashFile, hashBuffer } = require('../util');
 
 // How many pack files to fetch at once. The CDNs also have their own gentler
@@ -399,6 +400,25 @@ class Modpacks {
       }
     }
     return total;
+  }
+
+  /**
+   * Looks the files a pack archive brings along (jars in its overrides, files hosted outside Modrinth) up by hash.
+   * Returns { unknown, unchecked, cfSkipped } (see vetting.findUnknown), or null when this isn't a readable pack.
+   */
+  async scanArchive(zipPath) {
+    let zip;
+    try { zip = new AdmZip(zipPath); } catch { return null; }
+    const fmt = detectPackFormat(zip);
+    if (!fmt) return null;
+    return findUnknown(this.sources, entriesFromPack(zip, fmt));
+  }
+
+  /** Same for a pack picked in Browse (its archive goes to the cache, which the install needs anyway). null when the author blocks downloads. */
+  async scanFromSource({ source, projectId, versionId }) {
+    const { file, version } = await this.lookupPack(source, projectId, versionId);
+    if (!file.url) return null;
+    return this.scanArchive(await this.fetchArchive(source, version.id, file));
   }
 
   /** Estimated install size of a pack picked from Modrinth / CurseForge (downloads the archive into the cache, which the install needs anyway). null when the author blocks downloads. */

@@ -52,13 +52,45 @@ async function renderInstance(params, token) {
   }, icon(t.icon), t.label)));
   const back = h('button', { class: 'btn ghost sm', type: 'button', onclick: () => go('library'), style: { marginBottom: '12px' } }, icon('arrowLeft'), 'Library');
   const failedSlot = h('div');
-  view().replaceChildren(h('div', { class: 'page page-full instance-page' }, back, head, failedSlot, tabBar, content));
+  const removedSlot = h('div', { id: 'removed-slot' });
+  view().replaceChildren(h('div', { class: 'page page-full instance-page' }, back, head, failedSlot, removedSlot, tabBar, content));
+  refreshRemovedBanner(inst);
   call('content:failed', id).then((list) => {
     if (!stale(token) && list?.length) failedSlot.replaceChildren(failedNotice(inst, list, () => go('instance', state.params)));
   }).catch(() => {});
   if (['mod', 'resourcepack', 'shader'].includes(activeTab)) await renderContentTab(inst, activeTab, content, token);
   else if (activeTab === 'logs') await renderLogsTab(inst, content);
   else await renderInstSettings(inst, content);
+}
+
+/** Red banner when installed files were taken down from Modrinth / CurseForge (found by the update check). */
+function removedNotice(inst, list, onChange) {
+  const on = list.filter((i) => i.enabled);
+  const where = [...new Set(list.map((i) => i.platform))].join(' and ');
+  const names = list.slice(0, 6).map((i) => i.title).join(', ') + (list.length > 6 ? `, and ${list.length - 6} more` : '');
+  return h('div', { class: 'notice bad' }, icon('alert'),
+    h('div', { class: 'grow' },
+      h('div', null, `${list.length} file${list.length === 1 ? ' was' : 's were'} removed from ${where}`),
+      h('div', { class: 'hint' }, `${names}. The ${list.length === 1 ? 'page or version' : 'pages or versions'} no longer exist${list.length === 1 ? 's' : ''} there. That can mean a problem was found or just a clean-up, so it's worth a look.${on.length ? '' : ' They are all turned off.'}`)),
+    on.length ? h('button', { class: 'btn sm primary', type: 'button', onclick: async (e) => {
+      e.currentTarget.disabled = true;
+      try {
+        for (const type of [...new Set(on.map((i) => i.type))]) await call('content:toggleMany', inst.id, on.filter((i) => i.type === type).map((i) => i.file), false);
+        toast(`Turned off ${on.length} file${on.length === 1 ? '' : 's'}`, 'good');
+        onChange();
+      } catch (err) { toast(err.message, 'error'); e.currentTarget.disabled = false; }
+    } }, 'Turn off') : null);
+}
+
+/** Fills the banner slot on the instance page (also called after an update check finds new removals). */
+async function refreshRemovedBanner(inst) {
+  const slot = document.getElementById('removed-slot');
+  if (!slot) return;
+  try {
+    const list = await call('content:removed', inst.id);
+    if (document.getElementById('removed-slot') !== slot) return; // the page changed meanwhile
+    slot.replaceChildren(...(list?.length ? [removedNotice(inst, list, () => go('instance', state.params))] : []));
+  } catch { /* the banner is a bonus; the list itself still works */ }
 }
 
 async function changeIcon(inst, filePath) {

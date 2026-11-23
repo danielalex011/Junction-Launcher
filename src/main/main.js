@@ -20,6 +20,7 @@ const { ErrorLog } = require('../core/errorlog');
 const { ContentManager } = require('../core/content/manager');
 const { Modpacks } = require('../core/content/modpacks');
 const { PackLink } = require('../core/content/packlink');
+const { describeUnknown, hasFindings } = require('../core/content/vetting');
 const { BlockedWatcher, waitForDownload } = require('../core/content/blocked');
 const { exportMrpack, exportCurseForge, exportableEntries } = require('../core/content/export');
 const { detectInstance, importInstance, scanLaunchers } = require('../core/content/importer');
@@ -330,8 +331,11 @@ function registerIpc() {
     const filters = type === 'mod' ? [{ name: 'Mods', extensions: ['jar'] }] : [{ name: 'Packs', extensions: ['zip'] }];
     const r = await dialog.showOpenDialog(win, { properties: ['openFile', 'multiSelections'], filters });
     if (r.canceled) return [];
+    const scan = await ctx.tasks.run('Checking files', () => content.scanLocalFiles(r.filePaths), { instanceId: id }).catch(() => null);
+    if (!(await confirmUnknownFiles(scan))) return [];
     return ctx.tasks.run('Adding files', () => content.addLocalFiles(id, r.filePaths, type), { instanceId: id });
   });
+  handle('content:removed', async (id) => content.removedFiles(id));
   handle('content:identify', async (id, rels) => ctx.tasks.run('Identifying files', (t) => content.identify(id, Array.isArray(rels) ? relList(rels) : null, t.update), { instanceId: id }));
   handle('content:checkUpdates', async (id) => {
     const r = await ctx.tasks.run('Checking for updates', () => content.checkUpdates(id), { instanceId: id });
@@ -435,6 +439,13 @@ function registerIpc() {
     });
     return r.response === 0;
   };
+  // Files that aren't on Modrinth or CurseForge get a warning first. "Don't install" is the default button; no wording says a file is safe.
+  const confirmUnknownFiles = async (scan) => {
+    if (!hasFindings(scan)) return true;
+    const d = describeUnknown(scan);
+    const r = await dialog.showMessageBox(win, { type: 'warning', title: d.title, message: d.message, detail: d.detail, buttons: d.buttons, defaultId: 0, cancelId: 0, noLink: true });
+    return r.response === 1;
+  };
   handle('storage:space', async () => {
     const d = await diskSpace(ctx.root);
     return { path: ctx.root, ...(d || { free: null, total: null }), minFreeBytes: MIN_FREE_BYTES, minFreePercent: MIN_FREE_PERCENT };
@@ -442,6 +453,8 @@ function registerIpc() {
   handle('pack:installFromSource', async (opts) => {
     const manualFile = opts.source === 'curseforge' ? await waitForManualPack(opts) : null;
     if (!(await roomForPack(() => (manualFile ? modpacks.estimateArchive(manualFile) : modpacks.estimateFromSource(opts))))) return { cancelled: true };
+    const scan = await (manualFile ? modpacks.scanArchive(manualFile) : modpacks.scanFromSource(opts)).catch(() => null);
+    if (!(await confirmUnknownFiles(scan))) return { cancelled: true };
     const r = await ctx.tasks.run(`Installing ${opts.title || 'modpack'}`, async (t) => {
       const res = await modpacks.installFromSource({ ...opts, manualFile, report: t.update });
       try { await packlink.label(res.instance.id); } catch (e) { res.warnings = [...(res.warnings || []), `Couldn't sort pack content from your additions yet: ${e.message}`]; }
@@ -457,6 +470,8 @@ function registerIpc() {
       [file] = r.filePaths;
     }
     if (!(await roomForPack(() => modpacks.estimateArchive(file)))) return null;
+    const scan = await modpacks.scanArchive(file).catch(() => null);
+    if (!(await confirmUnknownFiles(scan))) return null;
     const r = await ctx.tasks.run(`Importing ${path.basename(file)}`, (t) => modpacks.installFile(file, { report: t.update }), { kind: 'modpack', icon: 'pack', heavy: true, createsInstance: true });
     return { ...r, blockedSession: startBlockedSession(r.instance.id, r.blocked) };
   });

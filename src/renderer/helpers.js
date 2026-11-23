@@ -169,6 +169,16 @@ function sourceBadge(source, url) {
   }, SRC[source] || source);
 }
 
+/** Red "Removed from Modrinth" tag for a file whose version or project was taken down (see checkRemoved in core). */
+function removedBadge(it) {
+  if (!it.removed) return null;
+  const what = it.removed.what === 'project' ? 'This project' : 'This version';
+  return h('span', {
+    class: 'badge bad plain', style: { marginLeft: '8px' },
+    title: `${what} was removed from ${it.removed.platform}. That can mean a problem was found or just a clean-up.`,
+  }, `Removed from ${it.removed.platform}`);
+}
+
 function instSubtitle(inst) {
   const l = inst.loader || { type: 'vanilla' };
   const lv = l.type !== 'vanilla' && l.version ? ` ${l.version}` : '';

@@ -117,6 +117,11 @@ async function renderContentTab(inst, type, root, token) {
   const runCheck = async () => {
     const res = await call('content:checkUpdates', inst.id);
     for (const e of res.filter((u) => u.error)) toast(e.error, 'warn');
+    try { // the check also flags files taken down from their platform
+      const fresh = new Map((await call('content:list', inst.id, type)).map((f) => [f.file, f.removed || null]));
+      for (const it of items) it.removed = fresh.get(it.file) || null;
+    } catch { /* badges update next time */ }
+    refreshRemovedBanner(inst);
     updates = new Map(res.filter((u) => !u.error && u.type === type).map((u) => [u.file, u]));
     checked = true;
     if (!res.length) toast('Everything is up to date', 'good');
@@ -261,6 +266,7 @@ async function renderContentTab(inst, type, root, token) {
           h('div', { class: 'i-title ellipsis', title: it.title }, it.title,
             it.clientOnly ? h('span', { class: 'badge client plain', style: { marginLeft: '8px' }, title: "Client-only: it's not needed on a server" }, 'Client') : null,
             it.duplicateOf ? h('span', { class: 'badge warn plain', style: { marginLeft: '8px' } }, 'Duplicate') : null,
+            removedBadge(it),
             it.pinned ? h('span', { class: 'badge plain', style: { marginLeft: '8px' }, title: 'Pinned: skipped by updates' }, 'Pinned') : null),
           h('div', { class: 'i-file ellipsis', title: it.fileName }, it.fileName)),
         h('div', { class: 'i-ver ellipsis', title: it.versionName }, up ? h('span', { class: 'badge good plain', title: `Update: ${up.next}` }, `→ ${up.next}`) : it.versionName),
@@ -346,6 +352,7 @@ async function renderContentTab(inst, type, root, token) {
         h('div', { class: 'i-title ellipsis', title: it.title }, it.title,
           it.packChanged ? h('span', { class: 'badge warn plain', style: { marginLeft: '8px' }, title: "This isn't the file the pack ships. Restore it from the lock menu." }, 'Changed') : null,
           it.duplicateOf ? h('span', { class: 'badge warn plain', style: { marginLeft: '8px' } }, 'Duplicate') : null,
+          removedBadge(it),
           it.pinned && !locked ? h('span', { class: 'badge plain', style: { marginLeft: '8px' }, title: 'Pinned: skipped by updates' }, 'Pinned') : null),
         h('div', { class: 'i-file ellipsis', title: it.fileName }, it.fileName)),
       h('div', { class: 'i-author ellipsis', title: authors[it.file] || '' }, authors[it.file] || h('span', { class: 'faint' }, '—')),

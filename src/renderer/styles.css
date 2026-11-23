@@ -312,6 +312,8 @@ input[type=checkbox] { accent-color: var(--accent); width: 16px; height: 16px; }
 .notice { display: flex; gap: 10px; align-items: flex-start; background: var(--panel-2); border: 1px solid var(--border); border-radius: var(--radius); padding: 12px 14px; margin-bottom: 14px; }
 .notice.warn { border-color: #5b4a24; background: #1f1b12; }
 .notice.info { border-color: #2f3a66; background: #151a2b; }
+.notice.bad { border-color: #6b2c2e; background: #231214; }
+.notice.bad .ico { color: var(--bad); }
 .notice .ico { margin-top: 1px; }
 .log { background: #0b0d10; border: 1px solid var(--border); border-radius: var(--radius); padding: 12px; height: calc(100vh - 290px); min-height: 260px; overflow: auto; font-family: ui-monospace, "Cascadia Mono", Consolas, monospace; font-size: 12px; line-height: 1.5; white-space: pre-wrap; word-break: break-word; }
 .log .l-warn { color: var(--warn); }
