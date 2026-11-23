@@ -123,15 +123,19 @@ function describeUnknown(r) {
     if (names.length > MAX_LISTED) shown.push(`  …and ${names.length - MAX_LISTED} more`);
     return shown.join('\n');
   };
+  // The heading already says what the list is; a label above the list is only needed when both kinds are shown.
+  const both = r.unknown.length > 0 && r.unchecked.length > 0;
   const parts = [];
   if (r.unknown.length) {
     const site = r.cfSkipped ? 'Modrinth' : 'Modrinth or CurseForge';
-    parts.push(`Not found on ${site}:\n${list(r.unknown)}`);
+    parts.push(both ? `Not found on ${site}:\n${list(r.unknown)}` : list(r.unknown));
   }
-  if (r.unchecked.length) parts.push(`Couldn't be checked (the lookup failed, so Junction can't say either way):\n${list(r.unchecked)}`);
+  if (r.unchecked.length) parts.push(both ? `Couldn't be checked (the lookup failed, so Junction can't say either way):\n${list(r.unchecked)}` : list(r.unchecked));
   const n = r.unknown.length + r.unchecked.length;
   const tail = [
-    "Junction can't tell what these files do. Only install them if you trust where they came from.",
+    n === 1
+      ? "Junction can't tell what this file does. Only install it if you trust where it came from."
+      : "Junction can't tell what these files do. Only install them if you trust where they came from.",
     r.cfSkipped ? "CurseForge wasn't checked because no CurseForge API key is set in Settings." : '',
   ].filter(Boolean).join(' ');
   return {

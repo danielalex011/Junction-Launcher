@@ -57,7 +57,9 @@ test('unknown file: listed by name with careful wording, and never called safe',
   assert.equal(r.cfSkipped, true, 'no CurseForge key: only Modrinth was asked');
   const d = describeUnknown(r);
   assert.deepEqual(d.buttons, ["Don't install", 'Install anyway'], "Don't install comes first (the default)");
-  assert.match(d.detail, /Not found on Modrinth:/);
+  assert.match(d.message, /not found on Modrinth/);
+  assert.doesNotMatch(d.detail, /Not found on/, 'the heading says it, not the list');
+  assert.match(d.detail, /Junction can't tell what this file does. Only install it if you trust where it came from./);
   assert.match(d.detail, /sketchy\.jar/);
   assert.doesNotMatch(d.detail, /sodium/);
   assert.match(d.detail, /CurseForge wasn't checked/);
@@ -85,7 +87,7 @@ test('unknown file: with a CurseForge key, a weak fingerprint match is double-ch
   const r = await content.scanLocalFiles([path.join(dir, 'cfmod.jar'), path.join(dir, 'ghost.jar')]);
   assert.deepEqual(r.unknown, ['ghost.jar']);
   assert.equal(r.cfSkipped, false);
-  assert.match(describeUnknown(r).detail, /Not found on Modrinth or CurseForge/);
+  assert.match(describeUnknown(r).message, /not found on Modrinth or CurseForge/);
 });
 
 test('unknown file: when the lookup itself fails, files are "could not be checked", not "unknown"', async () => {
@@ -95,7 +97,7 @@ test('unknown file: when the lookup itself fails, files are "could not be checke
   const r = await content.scanLocalFiles(tmpJars(fabricJar('a', 'A', '1')));
   assert.deepEqual(r.unknown, []);
   assert.equal(r.unchecked.length, 1);
-  assert.match(describeUnknown(r).detail, /Couldn't be checked/);
+  assert.match(describeUnknown(r).message, /could not be checked/);
 });
 
 test('modpack archive: jars in overrides and files hosted outside Modrinth are looked up; Modrinth-hosted ones are not', async () => {
