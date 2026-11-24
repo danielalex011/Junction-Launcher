@@ -85,14 +85,12 @@ Memory and Java per instance (with Generational ZGC and tuned G1 presets), downl
 
 ## Status
 
-Junction is **pre-release**.
+Junction is **pre-release**. Expect a few rough edges, and please report anything that breaks.
 
-- **Microsoft sign-in is waiting for Mojang's API approval.** Until the app ID is approved, signing in to Minecraft fails with a 403 error. Everything else, including browsing, installing and managing instances, works without signing in.
-- Not yet tried against the live services: launching the game, Forge and NeoForge installs, and CurseForge modpack installs. Expect a few rough edges there.
 - Forge for Minecraft versions older than 1.13 isn't supported (its installers can't run without a window). Fabric, Quilt and vanilla work on old versions.
 - Launchers installed to a non-default folder aren't found automatically. Use *Import → Browse for a folder…* for those.
-- Junction doesn't update itself yet. New versions are on the [Releases page](https://github.com/danielalex011/Junction-Launcher/releases).
-
+- Junction doesn't update itself yet. New versions are on the [Releases page](../../releases).
+- The installer isn't code-signed yet, so Windows may show "Windows protected your PC". Click **More info → Run anyway**.
 ## Building from source
 
 Requires [Node.js](https://nodejs.org) 22 or newer.
