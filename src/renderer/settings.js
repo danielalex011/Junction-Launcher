@@ -135,14 +135,14 @@ function settingsGeneral(s, info, auto) {
         ? h('p', null, 'Sign-in works out of the box: you sign in on Microsoft\'s own page, so your password never touches Junction.')
         : h('p', null, 'This build has no sign-in app ID. Microsoft requires every launcher to sign in through its own registered Azure app, and Mojang must approve new apps. See “Building it yourself” in the README.'),
       s.builtin_msClientId
-        ? h('details', { class: 'adv', open: Boolean(s.msClientId) }, h('summary', null, 'Advanced: use your own Azure app ID'),
-          h('label', { class: 'field' }, 'Azure application (client) ID. Leave empty to use the built-in one.', msId), msErr, msLinks)
+        ? (state.info?.devBuild ? h('details', { class: 'adv', open: Boolean(s.msClientId) }, h('summary', null, 'Advanced: use your own Azure app ID'),
+          h('label', { class: 'field' }, 'Azure application (client) ID. Leave empty to use the built-in one.', msId), msErr, msLinks) : null) // release builds: no field (a saved override is still used)
         : [h('label', { class: 'field' }, 'Azure application (client) ID', msId), msErr, msLinks]),
     h('div', { class: 'section' }, h('h3', null, 'CurseForge'),
       s.builtin_cfApiKey
-        ? h('p', null, 'CurseForge search and downloads work out of the box with Junction\'s own API key. You can use your own key instead if you have one.')
+        ? h('p', null, `CurseForge search and downloads work out of the box with Junction's own API key.${state.info?.devBuild ? ' You can use your own key instead if you have one.' : ''}`)
         : h('p', null, 'CurseForge requires an API key for search and downloads. Get one free from the CurseForge for Studios console. It\'s stored encrypted. Without a key, Junction works with Modrinth only.'),
-      s.builtin_cfApiKey ? h('details', { class: 'adv', open: Boolean(s.has_cfApiKey) }, h('summary', null, 'Advanced: use your own CurseForge API key'), cfField, cfHint) : [cfField, cfHint]),
+      s.builtin_cfApiKey ? (state.info?.devBuild ? h('details', { class: 'adv', open: Boolean(s.has_cfApiKey) }, h('summary', null, 'Advanced: use your own CurseForge API key'), cfField, cfHint) : null) : [cfField, cfHint]),
     h('div', { class: 'section' }, h('h3', null, 'Privacy'),
       h('p', { style: { marginBottom: 0 } }, 'No ads, no telemetry, no account needed to browse. Junction only talks to Mojang, Microsoft (sign-in), Modrinth, CurseForge and the loader download sites.')),
   ];

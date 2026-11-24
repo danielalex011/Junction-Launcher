@@ -158,6 +158,9 @@ async function main() {
   fs.mkdirSync(target, { recursive: true });
   for (const name of fs.readdirSync(target)) await removeWithRetries(path.join(target, name));
   fs.cpSync(DIST_UNPACKED, target, { recursive: true });
+  // Marks this folder as a dev build (Settings then shows the Advanced sign-in / CurseForge fields). Written next to the exe, after the copy:
+  // dist:win never makes this file. (Don't pass --config.extraMetadata to electron-builder for this: it rewrites package.json on disk.)
+  fs.writeFileSync(path.join(target, 'dev-build.txt'), 'This folder is a Junction dev build made by npm run deploy:dev.\n');
   const exe = path.join(target, 'Junction.exe');
   if (!fs.existsSync(exe)) fail(`Copy finished but ${exe} is missing.`);
 

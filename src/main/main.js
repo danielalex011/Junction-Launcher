@@ -18,7 +18,7 @@ const { Home } = require('../core/home');
 const { composeHead, steveHead } = require('../core/skin');
 const { Skins } = require('../core/skins');
 const { compareSources } = require('../core/sources/choose');
-const { ErrorLog } = require('../core/errorlog');
+const { ErrorLog, scrub } = require('../core/errorlog');
 const { ContentManager } = require('../core/content/manager');
 const { Modpacks } = require('../core/content/modpacks');
 const { PackLink } = require('../core/content/packlink');
@@ -114,7 +114,7 @@ function handle(channel, fn) {
     try {
       return { ok: true, data: await fn(...args) };
     } catch (err) {
-      console.error(`[${channel}]`, err);
+      console.error(`[${channel}]`, scrub(err?.stack || err, ctx?.settings?.secretValues() || [])); // never the raw error: it can carry a response body or URL with the app ID
       // Download-server errors can carry whole HTML pages: show a plain sentence instead.
       return { ok: false, error: err instanceof HttpError ? describeError(err) : String(err?.message || err), code: err?.code, manualUrl: err?.manualUrl };
     }
@@ -153,6 +153,7 @@ function registerIpc() {
     loaderNames: LOADER_NAMES,
     totalMemMB: Math.floor(os.totalmem() / 1024 / 1024),
     canTranslucent: canTranslucent(),
+    devBuild: isDevBuild(), // dev builds (npm start, deploy:dev) show the Advanced sign-in and CurseForge fields
   }));
   handle('settings:get', async () => ctx.settings.publicView());
   handle('settings:set', async (patch) => ctx.settings.update(patch));
@@ -782,6 +783,12 @@ function packFilesFromArgv(argv) {
   return argv.filter((a) => /\.(mrpack)$/i.test(a) && fs.existsSync(a));
 }
 
+/** npm start, or a folder made by deploy:dev (it has a dev-build.txt next to the exe). dist:win builds never have one. */
+function isDevBuild() {
+  if (!app.isPackaged) return true;
+  try { return fs.existsSync(path.join(path.dirname(app.getPath('exe')), 'dev-build.txt')); } catch { return false; }
+}
+
 /** Windows 11 22H2 or newer: the only place the window material (Mica) exists. */
 function canTranslucent() { return process.platform === 'win32' && Number(os.release().split('.')[2]) >= 22621; }
 
@@ -871,7 +878,7 @@ app.whenReady().then(async () => {
   // Dev hook for automated UI screenshots: swap in a fake network.
   const fetchImpl = process.env.JUNCTION_FETCH_MOCK ? require(process.env.JUNCTION_FETCH_MOCK) : undefined;
   ctx = await createContext(dataRoot(), { crypto: osCrypto, fetchImpl, builtins: loadBuildConfig({ appRoot: app.getAppPath() }) });
-  errorLog = new ErrorLog(ctx.root);
+  errorLog = new ErrorLog(ctx.root, { secrets: () => ctx.settings.secretValues() });
   accounts = await new Accounts(ctx).load();
   skins = new Skins(ctx, accounts);
   instances = new Instances(ctx);

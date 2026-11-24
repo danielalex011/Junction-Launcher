@@ -70,6 +70,11 @@ class Settings {
     return this.data[key];
   }
 
+  /** Every secret-ish value in use right now (the sign-in app ID and the CurseForge key, built-in or your own), so logs can hide them. */
+  secretValues() {
+    return [this.get('msClientId'), this.get('cfApiKey'), this.builtins.msClientId, this.builtins.cfApiKey].filter((v, i, all) => typeof v === 'string' && v.length >= 8 && all.indexOf(v) === i);
+  }
+
   // What the UI is allowed to see: secrets are reported as present/absent only.
   publicView() {
     const out = { ...this.data };
