@@ -85,9 +85,32 @@ class Accounts {
       if (!acc.skinUrl && !fs.existsSync(this.skinFile(acc.id))) { acc.skinUrl = url; await this.save(); } // remembered first, so a failed download is retried on the next start
       await downloadSkin(this.ctx, url, this.skinFile(acc.id));
       fs.rmSync(this.headFile(acc.id), { force: true });
+      acc.skinUrl = url;
       acc.skinAt = Date.now();
       await this.save();
     } catch (e) { console.warn(`Could not fetch the player head: ${e?.message || e}`); /* offline, or no skin: keep the letter */ }
+  }
+
+  /**
+   * Asks Mojang what the account's skin is now and downloads it when it differs from the cached one
+   * (so a skin changed on minecraft.net is picked up). The cached head stays until the new one arrived.
+   * Resolves true when the cached head changed; never throws (offline, signed out: nothing changes).
+   */
+  refreshHead(id) {
+    const acc = this.get(id);
+    if (!acc || acc.type !== 'msa' || acc.needsRelogin) return Promise.resolve(false);
+    if (!this.headJobs) this.headJobs = new Map();
+    if (this.headJobs.has(id)) return this.headJobs.get(id);
+    const job = (async () => {
+      const before = acc.skinAt || 0;
+      try {
+        const profile = await this.fetchProfile(await this.freshMcToken(acc));
+        await this.saveSkin(acc, profile);
+      } catch (e) { console.warn(`Could not refresh the player head: ${e?.message || e}`); }
+      return (acc.skinAt || 0) !== before;
+    })().finally(() => this.headJobs.delete(id));
+    this.headJobs.set(id, job);
+    return job;
   }
 
   /** Retries skins that are known but not on disk (for example after a failed download). Safe to call in the background. */
@@ -194,6 +217,16 @@ class Accounts {
     }
   }
 
+  /** The Minecraft profile (name, uuid, skins, capes) for a Minecraft access token. */
+  async fetchProfile(accessToken) {
+    try {
+      return await this.ctx.http.json('https://api.minecraftservices.com/minecraft/profile', { headers: { Authorization: `Bearer ${accessToken}` }, retries: 1 });
+    } catch (e) {
+      if (e.status === 404) throw new AuthError('This Microsoft account does not own Minecraft: Java Edition (or has never set a profile name).', 'NO_GAME');
+      throw e;
+    }
+  }
+
   async minecraftFromMs(msAccessToken) {
     const http = this.ctx.http;
     const xbl = await http.json('https://user.auth.xboxlive.com/user/authenticate', {
@@ -220,13 +253,7 @@ class Accounts {
       }
       throw e;
     }
-    let profile = null;
-    try {
-      profile = await http.json('https://api.minecraftservices.com/minecraft/profile', { headers: { Authorization: `Bearer ${mc.access_token}` }, retries: 1 });
-    } catch (e) {
-      if (e.status === 404) throw new AuthError('This Microsoft account does not own Minecraft: Java Edition (or has never set a profile name).', 'NO_GAME');
-      throw e;
-    }
+    const profile = await this.fetchProfile(mc.access_token);
     const xuid = (() => {
       try { return JSON.parse(Buffer.from(mc.access_token.split('.')[1], 'base64url').toString()).xuid || ''; } catch { return ''; }
     })();

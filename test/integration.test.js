@@ -510,6 +510,38 @@ test('skin heads: only Mojang texture URLs, face + hat cropped, a failed downloa
   assert.equal(acc.skinUrl, 'https://textures.minecraft.net/texture/gone');
 });
 
+test('player heads refresh on their own: changed skin is picked up, offline keeps the cached head, Steve for offline', async () => {
+  const { steveHead } = require('../src/core/skin');
+  const steve = steveHead(2);
+  assert.equal(steve.length, 16 * 16 * 4);
+  assert.ok([...steve].filter((_, i) => i % 4 === 3).every((a) => a === 255), 'fully opaque');
+  let profileUp = true;
+  let skinName = 'one';
+  const ctx = await makeCtx([
+    ['GET', 'https://api.minecraftservices.com/minecraft/profile', () => (profileUp
+      ? { json: { id: 'r', name: 'R', skins: [{ state: 'ACTIVE', url: `http://textures.minecraft.net/texture/${skinName}` }] } }
+      : { status: 503, json: {} })],
+    ['GET', /textures\.minecraft\.net\/texture\//, () => ({ body: demoSkin() })],
+  ]);
+  const accounts = await new Accounts(ctx).load();
+  // Signed in before the https fix: no skin remembered at all.
+  accounts.data.accounts.push({ id: 'msa-r', type: 'msa', name: 'R', uuid: 'r', mcToken: await ctx.crypto.encrypt('tok'), mcTokenExpires: Date.now() + 1e9 });
+  accounts.data.accounts.push({ id: 'off-1', type: 'offline', name: 'Steve', uuid: 'x' });
+  assert.equal(await accounts.refreshHead('msa-r'), true, 'first start downloads the head');
+  assert.ok(fs.existsSync(accounts.skinFile('msa-r')));
+  assert.equal(accounts.get('msa-r').skinUrl, 'https://textures.minecraft.net/texture/one');
+  assert.equal(await accounts.refreshHead('msa-r'), false, 'same skin: nothing to do');
+  const cached = accounts.get('msa-r').skinAt;
+  skinName = 'two'; // changed on minecraft.net
+  assert.equal(await accounts.refreshHead('msa-r'), true);
+  assert.equal(accounts.get('msa-r').skinUrl, 'https://textures.minecraft.net/texture/two');
+  assert.ok(accounts.get('msa-r').skinAt >= cached);
+  profileUp = false; // offline / Mojang down: the cached head stays
+  assert.equal(await accounts.refreshHead('msa-r'), false);
+  assert.ok(fs.existsSync(accounts.skinFile('msa-r')) && accounts.list()[0].skinAt > 0);
+  assert.equal(await accounts.refreshHead('off-1'), false, 'offline accounts have nothing to fetch');
+});
+
 test('Microsoft sign-in explains when Mojang has not approved the app', async () => {
   const routes = [
     ['POST', /devicecode$/, () => ({ json: { device_code: 'dc', user_code: 'C', verification_uri: 'u', expires_in: 60, interval: 0.01 } })],

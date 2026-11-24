@@ -62,4 +62,22 @@ function composeHead(px, width, height, scale = 8) {
   return out;
 }
 
-module.exports = { skinUrlOf, downloadSkin, composeHead, SKIN_HOST };
+// The default "Steve" face, 8x8, drawn with a small palette (offline accounts have no skin to crop).
+const STEVE = {
+  H: [0x3b, 0x2a, 0x1c], S: [0xc0, 0x8a, 0x68], N: [0x9a, 0x66, 0x48], W: [0xff, 0xff, 0xff], E: [0x45, 0x3a, 0x8c], B: [0x5e, 0x3d, 0x28],
+};
+const STEVE_FACE = ['HHHHHHHH', 'HHHHHHHH', 'HSSSSSSH', 'SSSSSSSS', 'SWESSEWS', 'SSSNNSSS', 'SSBBBBSS', 'SSSBBSSS'];
+
+/** The default Steve face, enlarged, as 4 bytes per pixel in the same order as a decoded skin from Electron (blue, green, red, alpha). */
+function steveHead(scale = 8) {
+  const out = Buffer.alloc(8 * scale * 8 * scale * 4);
+  for (let y = 0; y < 8 * scale; y++) {
+    for (let x = 0; x < 8 * scale; x++) {
+      const [r, g, b] = STEVE[STEVE_FACE[Math.floor(y / scale)][Math.floor(x / scale)]];
+      out.set([b, g, r, 255], (y * 8 * scale + x) * 4);
+    }
+  }
+  return out;
+}
+
+module.exports = { skinUrlOf, downloadSkin, composeHead, steveHead, SKIN_HOST };

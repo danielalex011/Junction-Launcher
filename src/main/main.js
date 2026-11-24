@@ -14,7 +14,7 @@ const { createSources, searchAll, compatibleLoaders } = require('../core/sources
 const { News } = require('../core/news');
 const { DEFAULT_APPEARANCE, BG_FILE } = require('../core/appearance');
 const { Home } = require('../core/home');
-const { composeHead } = require('../core/skin');
+const { composeHead, steveHead } = require('../core/skin');
 const { Skins } = require('../core/skins');
 const { compareSources } = require('../core/sources/choose');
 const { ErrorLog } = require('../core/errorlog');
@@ -85,6 +85,7 @@ const osCrypto = {
 /** The cropped face + hat of an account's cached skin as a PNG (made on first use, then kept next to the skin). */
 function accountHead(id) {
   try {
+    if (accounts.get(id)?.type === 'offline') return nativeImage.createFromBitmap(steveHead(8), { width: 64, height: 64 }).toPNG(); // no skin: the default face
     const head = accounts.headFile(id);
     const raw = accounts.skinFile(id);
     if (!fs.existsSync(raw)) return null;
@@ -96,6 +97,11 @@ function accountHead(id) {
     fs.writeFileSync(head, png);
     return png;
   } catch { return null; }
+}
+
+/** Refreshes an account's cached head in the background and tells the window when it changed. */
+function refreshHead(id) {
+  accounts.refreshHead(id).then((changed) => { if (changed) send('accounts:changed'); }).catch(() => {});
 }
 
 function send(channel, payload) {
@@ -671,14 +677,17 @@ function registerIpc() {
 
   // --- accounts
   handle('accounts:list', async () => ({
-    accounts: accounts.list().map((a) => ({ ...a, iconSrc: a.skinAt ? `junction-skin://${a.id}/?v=${a.skinAt}` : null })),
+    accounts: accounts.list().map((a) => ({ ...a, iconSrc: a.skinAt || a.type === 'offline' ? `junction-skin://${a.id}/?v=${a.skinAt || 'steve'}` : null })),
     canAddOffline: accounts.canAddOffline(),
   }));
   handle('accounts:beginMs', async () => accounts.beginMicrosoftLogin());
   handle('accounts:completeMs', async (loginId) => accounts.completeMicrosoftLogin(loginId));
   handle('accounts:cancelMs', async (loginId) => accounts.cancelLogin(loginId));
   handle('accounts:addOffline', async (name) => accounts.addOffline(name));
-  handle('accounts:setActive', async (id) => accounts.setActive(id));
+  handle('accounts:setActive', async (id) => {
+    await accounts.setActive(id);
+    refreshHead(String(id)); // in the background: picks up a skin changed elsewhere; the cached head shows meanwhile
+  });
   handle('accounts:remove', async (id) => accounts.remove(id));
 
   // --- skins (wardrobe + the active Microsoft account's skin and cape)
@@ -868,6 +877,7 @@ app.whenReady().then(async () => {
     return png ? new Response(png, { headers: { 'content-type': 'image/png' } }) : new Response('not found', { status: 404 });
   });
   accounts.fetchMissingSkins().then(() => send('accounts:changed')).catch(() => {});
+  if (accounts.data.active) refreshHead(accounts.data.active); // every start: asks Mojang for the active account's skin
   pendingOpenFiles.push(...packFilesFromArgv(process.argv));
   registerIpc();
   createWindow();
