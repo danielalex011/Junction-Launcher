@@ -13,7 +13,7 @@
   <img src="docs/screenshots/home.png" alt="Junction's Home page: recent instances, an updates bar and popular modpacks">
 </p>
 
-<p align="center"><sub>Windows · macOS · Linux. The pictures on this page use demo data.</sub></p>
+<p align="center"><sub>Windows · The pictures on this page use demo data.</sub></p>
 
 ## Getting started
 
