@@ -40,6 +40,9 @@ function renderNav() {
   const qs = $('#qs-btn');
   qs.replaceChildren(icon('search', 16), h('span', { class: 'nav-label grow' }, 'Search'), h('kbd', { class: 'nav-label' }, 'Ctrl K'));
   qs.onclick = () => openQuickSearch();
+  const brush = $('#theme-btn');
+  brush.replaceChildren(icon('brush', 16));
+  brush.onclick = () => go('settings', { tab: 'appearance' });
 }
 
 let renderToken = 0;

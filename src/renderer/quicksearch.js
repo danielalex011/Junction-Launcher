@@ -23,7 +23,7 @@ function qsFixedItems() {
     act('account', 'Add Microsoft account', 'user', ['sign in', 'login', 'minecraft account'], () => microsoftLogin()),
     act('data', 'Open data folder', 'folder', ['files', 'directory'], () => call('shell:openData')),
     act('set-general', 'General settings', 'sliders', ['settings', 'start page', 'notification', 'launch', 'snapshots', 'news', 'sign in', 'curseforge key'], () => go('settings', { tab: 'general' })),
-    act('appearance', 'Appearance settings', 'sliders', ['settings', 'theme', 'accent', 'colour', 'color', 'background', 'sidebar', 'size'], () => go('settings', { tab: 'appearance' })),
+    act('appearance', 'Appearance settings', 'sliders', ['settings', 'theme', 'themes', 'accent', 'colour', 'color', 'colours', 'colors', 'background', 'dark', 'light', 'font', 'sidebar', 'size', 'mica', 'translucent', 'motion', 'animation', 'oled', 'paintbrush'], () => go('settings', { tab: 'appearance' })),
     act('set-memory', 'Memory settings', 'sliders', ['settings', 'ram', 'xmx', 'gigabytes', 'gb', 'heap'], () => go('settings', { tab: 'memory' })),
     act('set-java', 'Java settings', 'sliders', ['settings', 'jvm', 'runtime', 'jdk', 'graalvm', 'arguments', 'flags'], () => go('settings', { tab: 'java' })),
     act('set-storage', 'Downloads & storage settings', 'sliders', ['settings', 'cache', 'speed limit', 'parallel', 'backups', 'logs', 'disk'], () => go('settings', { tab: 'storage' })),

@@ -313,10 +313,12 @@ async function projectDialog(hit, { instance = null, tab = 'about', onInstalled 
       tabBar.replaceChildren(...[['about', 'Description'], ['versions', 'Versions']].map(([k, l]) => h('button', { type: 'button', class: k === t ? 'on' : '', onclick: () => setTab(k) }, l)));
       if (t === 'about') {
         const frame = h('iframe', { class: 'desc-frame', sandbox: 'allow-popups allow-popups-to-escape-sandbox', referrerpolicy: 'no-referrer' });
+        const f = frameTheme();
         frame.srcdoc = `<!doctype html><html><head><meta charset="utf-8"><base target="_blank"><style>
-          body{font-family:system-ui,"Segoe UI",sans-serif;color:#e7e9ee;background:#171a20;margin:18px;line-height:1.6;font-size:14px}
-          a{color:#8ea2ff} img,video,iframe{max-width:100%;height:auto;border-radius:6px} pre,code{background:#0f1115;border-radius:5px;padding:2px 5px;font-size:12px;overflow:auto}
-          blockquote{border-left:3px solid #2a303a;margin:0;padding:2px 14px;color:#9aa3b2} table{border-collapse:collapse} td,th{border:1px solid #2a303a;padding:4px 8px} h1,h2,h3{line-height:1.25} hr{border:0;border-top:1px solid #2a303a}
+          :root{color-scheme:${f.light ? 'light' : 'dark'}}
+          body{font-family:system-ui,"Segoe UI",sans-serif;color:${f.text};background:${f.bg};margin:18px;line-height:1.6;font-size:14px}
+          a{color:${f.accent}} img,video,iframe{max-width:100%;height:auto;border-radius:6px} pre,code{background:${f.code};border-radius:5px;padding:2px 5px;font-size:12px;overflow:auto}
+          blockquote{border-left:3px solid ${f.border};margin:0;padding:2px 14px;color:${f.muted}} table{border-collapse:collapse} td,th{border:1px solid ${f.border};padding:4px 8px} h1,h2,h3{line-height:1.25} hr{border:0;border-top:1px solid ${f.border}}
           </style></head><body>${project.bodyHtml || `<p>${(project.summary || '').replace(/[<>&]/g, '')}</p>`}</body></html>`;
         pane.replaceChildren(frame);
       } else {

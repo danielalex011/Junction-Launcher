@@ -9,6 +9,7 @@ const SOURCES = [
   ['skinview3d', 'src/renderer/vendor/LICENSE-skinview3d.txt'],
   ['three.js', 'src/renderer/vendor/LICENSE-three.txt'],
   ['skinview-utils', 'src/renderer/vendor/LICENSE-skinview-utils.txt'],
+  ['Pixelify Sans (heading font)', 'src/renderer/vendor/LICENSE-PixelifySans.txt'],
   ['marked', 'node_modules/marked/LICENSE'],
   ['adm-zip', 'node_modules/adm-zip/LICENSE'],
   ['sql.js', 'node_modules/sql.js/LICENSE'],

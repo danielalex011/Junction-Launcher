@@ -147,6 +147,7 @@ const renderTokenNow = () => homeRenderToken;
 function drawHome(d, token) {
   homeRenderToken = token;
   const sections = [];
+  if (state.settings?.appearance && !state.settings.appearance.themeCardDismissed) sections.push(themeCard());
 
   if (state.settings?.showNews !== false) {
     const host = h('div', { class: 'news-host' });

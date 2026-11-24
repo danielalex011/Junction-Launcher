@@ -17,7 +17,7 @@ function scrollRow(cards, { label = 'Items', cardWidth = '250px' } = {}) {
     wrap.classList.toggle('can-prev', track.scrollLeft > 2);
     wrap.classList.toggle('can-next', track.scrollLeft < max - 2);
   };
-  const page = (dir) => track.scrollBy({ left: dir * Math.max(200, track.clientWidth * 0.85), behavior: 'smooth' });
+  const page = (dir) => track.scrollBy({ left: dir * Math.max(200, track.clientWidth * 0.85), behavior: motionReduced() ? 'auto' : 'smooth' });
   prev.onclick = () => page(-1);
   next.onclick = () => page(1);
   track.addEventListener('scroll', update, { passive: true });

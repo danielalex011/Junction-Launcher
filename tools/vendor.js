@@ -1,5 +1,5 @@
 'use strict';
-// `npm run vendor`: copies the skinview3d browser bundle and the licenses of the code inside it from node_modules
+// `npm run vendor`: copies the skinview3d browser bundle, the Pixelify Sans heading font (OFL) and the licenses of the code inside them from node_modules
 // into src/renderer/vendor/. Run it after changing the skinview3d version, then commit the result.
 const fs = require('fs');
 const path = require('path');
@@ -12,6 +12,8 @@ const files = [
   [nm('skinview3d', 'LICENSE'), 'LICENSE-skinview3d.txt'],
   [nm('three', 'LICENSE'), 'LICENSE-three.txt'], // three.js is bundled inside skinview3d
   [nm('skinview-utils', 'LICENSE'), 'LICENSE-skinview-utils.txt'], // so is skinview-utils
+  [nm('@fontsource', 'pixelify-sans', 'files', 'pixelify-sans-latin-700-normal.woff2'), 'PixelifySans-700.woff2'], // heading font (SIL Open Font License 1.1)
+  [nm('@fontsource', 'pixelify-sans', 'LICENSE'), 'LICENSE-PixelifySans.txt'],
 ];
 fs.mkdirSync(out, { recursive: true });
 for (const [from, name] of files) {

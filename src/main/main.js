@@ -1,5 +1,5 @@
 'use strict';
-const { app, BrowserWindow, ipcMain, dialog, shell, safeStorage, Menu, protocol, net, nativeImage, clipboard, Notification } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, shell, safeStorage, Menu, protocol, net, nativeImage, clipboard, Notification, nativeTheme } = require('electron');
 const os = require('os');
 const crypto = require('crypto');
 const { pathToFileURL } = require('url');
@@ -12,7 +12,8 @@ const { Accounts } = require('../core/auth/accounts');
 const { Instances, isLinkedPack } = require('../core/instances');
 const { createSources, searchAll, compatibleLoaders } = require('../core/sources');
 const { News } = require('../core/news');
-const { DEFAULT_APPEARANCE, BG_FILE } = require('../core/appearance');
+const { DEFAULT_APPEARANCE, BG_FILE, windowBackground, normalizeAppearance } = require('../core/appearance');
+const Themes = require('../renderer/themes');
 const { Home } = require('../core/home');
 const { composeHead, steveHead } = require('../core/skin');
 const { Skins } = require('../core/skins');
@@ -151,6 +152,7 @@ function registerIpc() {
     encryption: encryptionAvailable,
     loaderNames: LOADER_NAMES,
     totalMemMB: Math.floor(os.totalmem() / 1024 / 1024),
+    canTranslucent: canTranslucent(),
   }));
   handle('settings:get', async () => ctx.settings.publicView());
   handle('settings:set', async (patch) => ctx.settings.update(patch));
@@ -380,7 +382,24 @@ function registerIpc() {
     return ctx.settings.update({ appearance: { backgroundFile: `background${ext}`, backgroundVersion: Date.now() } });
   });
   handle('appearance:clearBackground', async () => { dropBackgrounds(); return ctx.settings.update({ appearance: { backgroundFile: null } }); });
-  handle('appearance:reset', async () => { dropBackgrounds(); return ctx.settings.update({ appearance: { ...DEFAULT_APPEARANCE } }); });
+  handle('appearance:reset', async () => { dropBackgrounds(); return ctx.settings.update({ appearance: { ...DEFAULT_APPEARANCE, themeCardDismissed: Boolean(ctx.settings.get('appearance')?.themeCardDismissed) } }); }); // the Home card never comes back
+  // The window's own background: its colour (no flash before the page loads) and, on Windows 11, the Mica material behind translucent panels.
+  handle('appearance:window', async (o) => { applyWindowLook({ translucent: Boolean(o?.translucent), light: Boolean(o?.light), bg: String(o?.bg || '') }); });
+  handle('appearance:exportTheme', async (a) => {
+    const theme = Themes.exportTheme(normalizeAppearance(a));
+    const r = await dialog.showSaveDialog(win, { title: 'Export theme', defaultPath: 'junction-theme.json', filters: [{ name: 'Junction theme', extensions: ['json'] }] });
+    if (r.canceled || !r.filePath) return null;
+    fs.writeFileSync(r.filePath, `${JSON.stringify(theme, null, 2)}
+`);
+    return true;
+  });
+  handle('appearance:importTheme', async () => {
+    const r = await dialog.showOpenDialog(win, { title: 'Import theme', properties: ['openFile'], filters: [{ name: 'Junction theme', extensions: ['json'] }] });
+    if (r.canceled || !r.filePaths[0]) return null;
+    const st = fs.statSync(r.filePaths[0]);
+    if (!st.isFile() || st.size > 64 * 1024) throw new Error('That file is too big to be a Junction theme.');
+    return Themes.parseThemeFile(fs.readFileSync(r.filePaths[0], 'utf8'));
+  });
   handle('appearance:zoom', async (pct) => { win?.webContents.setZoomFactor(Math.min(1.25, Math.max(0.9, Number(pct) / 100 || 1))); });
   handle('news:get', async () => news.state());
   handle('news:refresh', async (opts) => news.refresh(opts || {}));
@@ -763,13 +782,28 @@ function packFilesFromArgv(argv) {
   return argv.filter((a) => /\.(mrpack)$/i.test(a) && fs.existsSync(a));
 }
 
+/** Windows 11 22H2 or newer: the only place the window material (Mica) exists. */
+function canTranslucent() { return process.platform === 'win32' && Number(os.release().split('.')[2]) >= 22621; }
+
+function applyWindowLook({ translucent, light, bg }) {
+  nativeTheme.themeSource = light ? 'light' : 'dark';
+  if (!win || win.isDestroyed()) return;
+  const on = translucent && canTranslucent();
+  try { win.setBackgroundMaterial?.(on ? 'mica' : 'none'); } catch { /* an older Windows: nothing to do */ }
+  win.setBackgroundColor(on ? '#00000000' : (/^#[0-9a-f]{6}$/i.test(bg) ? bg : '#111317'));
+}
+
 function createWindow() {
+  const look = normalizeAppearance(ctx.settings.get('appearance'));
+  const see = look.translucent && canTranslucent();
+  nativeTheme.themeSource = Themes.resolve(look).light ? 'light' : 'dark';
   win = new BrowserWindow({
     width: 1280,
     height: 820,
     minWidth: 980,
     minHeight: 640,
-    backgroundColor: '#111317',
+    backgroundColor: see ? '#00000000' : windowBackground(look),
+    ...(see ? { backgroundMaterial: 'mica' } : {}),
     title: 'Junction',
     icon: path.join(__dirname, '..', 'renderer', 'icon.png'),
     autoHideMenuBar: true,

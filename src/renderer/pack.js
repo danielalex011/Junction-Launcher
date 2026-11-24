@@ -157,21 +157,23 @@ async function renderPackChangelog(inst, root, token) {
     <header><b>${esc(v.versionNumber)}</b>${v.newer ? '<span class="tag new">Newer</span>' : ''}${v.current ? '<span class="tag cur">Installed</span>' : ''}${v.releaseType && v.releaseType !== 'release' ? `<span class="tag">${esc(v.releaseType)}</span>` : ''}<span class="date">${esc(new Date(v.date).toLocaleDateString())}</span></header>
     <div class="body">${v.html || '<p class="none">No changelog for this version.</p>'}</div></section>`).join('');
   const frame = h('iframe', { class: 'desc-frame changelog-frame', sandbox: 'allow-popups allow-popups-to-escape-sandbox', referrerpolicy: 'no-referrer' });
+  const f = frameTheme();
   frame.srcdoc = `<!doctype html><html><head><meta charset="utf-8"><base target="_blank"><style>
-    body{font:14px/1.55 "Segoe UI Variable Text","Segoe UI",system-ui,sans-serif;color:#e6e9ef;background:#171a20;margin:0;padding:14px 18px}
-    a{color:#8ea2ff} img,video,iframe{max-width:100%;height:auto;border-radius:6px} pre,code{background:#0f1115;border-radius:5px;padding:2px 5px;font-size:12px;overflow:auto}
-    section{border:1px solid #2a2f3a;border-radius:10px;padding:12px 16px;margin:0 0 12px;background:#1b1f26}
-    section.newer{border-color:#4a5ad0;background:#1b2033;box-shadow:inset 3px 0 0 #8ea2ff}
-    section.current{border-color:#2c5e48}
+    :root{color-scheme:${f.light ? 'light' : 'dark'}}
+    body{font:14px/1.55 "Segoe UI Variable Text","Segoe UI",system-ui,sans-serif;color:${f.text};background:${f.bg};margin:0;padding:14px 18px}
+    a{color:${f.accent}} img,video,iframe{max-width:100%;height:auto;border-radius:6px} pre,code{background:${f.code};border-radius:5px;padding:2px 5px;font-size:12px;overflow:auto}
+    section{border:1px solid ${f.border};border-radius:10px;padding:12px 16px;margin:0 0 12px;background:${f.panel}}
+    section.newer{border-color:${f.accent};box-shadow:inset 3px 0 0 ${f.accent}}
+    section.current{border-color:${f.good}}
     header{display:flex;align-items:center;gap:8px;font-size:15px;margin-bottom:6px}
-    .tag{font-size:11px;font-weight:700;padding:1px 8px;border-radius:20px;background:#252a33;color:#9aa3b2}
-    .tag.new{background:rgba(142,162,255,.18);color:#8ea2ff}.tag.cur{background:rgba(60,207,142,.14);color:#3ccf8e}
-    .date{margin-left:auto;color:#6b7383;font-size:12px}.none{color:#6b7383;margin:0}
+    .tag{font-size:11px;font-weight:700;padding:1px 8px;border-radius:20px;background:${f.panel3};color:${f.muted}}
+    .tag.new{color:${f.accent}}.tag.cur{color:${f.good}}
+    .date{margin-left:auto;color:${f.faint};font-size:12px}.none{color:${f.faint};margin:0}
     h1,h2,h3{font-size:15px;margin:12px 0 6px} ul{padding-left:20px;margin:6px 0}
   </style></head><body>${sections || '<p class="none">This modpack has no changelogs.</p>'}</body></html>`;
   root.replaceChildren(
     h('div', { class: 'toolbar' },
-      newer ? h('span', { class: 'badge plain', style: { color: 'var(--accent)', background: 'rgba(142,162,255,.14)' } }, `${newer} newer version${newer === 1 ? '' : 's'}`) : h('span', { class: 'muted small' }, `You have the newest version (${inst.pack.versionName}).`),
+      newer ? h('span', { class: 'badge plain', style: { color: 'var(--accent)', background: 'color-mix(in srgb, var(--accent) 14%, transparent)' } }, `${newer} newer version${newer === 1 ? '' : 's'}`) : h('span', { class: 'muted small' }, `You have the newest version (${inst.pack.versionName}).`),
       h('span', { class: 'muted small' }, newer ? 'Highlighted below: read what\'s coming before you update.' : ''),
       h('div', { class: 'grow' }),
       inst.pack.url ? h('button', { class: 'btn ghost sm', type: 'button', onclick: () => call('shell:open', inst.pack.url) }, icon('external', 14), `Open on ${SRC[inst.pack.source]}`) : null),
