@@ -50,6 +50,12 @@
           ]
         },
         {
+          "target": "msi",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
           "target": "zip",
           "arch": [
             "x64"
@@ -61,6 +67,11 @@
     "nsis": {
       "oneClick": false,
       "allowToChangeInstallationDirectory": true
+    },
+    "msi": {
+      "oneClick": true,
+      "perMachine": false,
+      "upgradeCode": "07A2DC68-10A3-5245-8D85-E206DB348C9E"
     },
     "linux": {
       "target": [
