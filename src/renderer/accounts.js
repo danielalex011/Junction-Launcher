@@ -37,6 +37,12 @@ function closeAccountMenu({ refocus = false } = {}) {
   return true;
 }
 
+/** Active account first, then the other Microsoft accounts, then offline ones; each group keeps the order they were added (the sort is stable). */
+function sortAccountsForMenu(list) {
+  const rank = (a) => (a.active ? 0 : a.type === 'msa' ? 1 : 2);
+  return [...list].sort((a, b) => rank(a) - rank(b));
+}
+
 async function openAccountMenu(chip) {
   let data;
   let info;
@@ -44,7 +50,8 @@ async function openAccountMenu(chip) {
     data = await call('accounts:list');
     info = state.info || (state.info = await call('app:info'));
   } catch (e) { toast(e.message, 'error'); return; }
-  const { accounts, canAddOffline } = data;
+  const { canAddOffline } = data;
+  const accounts = sortAccountsForMenu(data.accounts);
   const rows = accounts.map((a) => h('div', { class: `acct-row ${a.active ? 'active' : ''}` },
     h('button', {
       type: 'button', role: 'menuitemradio', 'aria-checked': a.active ? 'true' : 'false', class: 'acct-main',
