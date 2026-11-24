@@ -147,13 +147,60 @@ function instanceMenu(anchor, inst) {
  */
 function logLineClass(l) {
   if (l.startsWith('[Junction]')) return 'l-j';
-  const lvl = /^\[\d\d:\d\d:\d\d\] \[[^\]]*\/(TRACE|DEBUG|INFO|WARN|ERROR|FATAL)\]:/.exec(l);
+  const lvl = /^\[\d\d:\d\d:\d\d\] \[[^\]]*\/(TRACE|DEBUG|INFO|WARN|ERROR|FATAL)\](?: \[[^\]]*\])?:/.exec(l); // NeoForge adds "[modname/]" before the colon
   if (lvl) return lvl[1] === 'ERROR' || lvl[1] === 'FATAL' ? 'l-err' : lvl[1] === 'WARN' ? 'l-warn' : '';
   return /\b(ERROR|FATAL)\b|(Exception|Error)\b/.test(l) ? 'l-err' : /\bWARN\b/.test(l) ? 'l-warn' : ''; // also java.lang.IllegalStateException, OutOfMemoryError
 }
 
+/** The one-line summary of a hint, for the card title and the toast. */
+function logHintTitle(hint) {
+  if (hint.kind === 'incompatible') return `${hint.file?.title || hint.modId} doesn't work with this modpack`;
+  if (hint.kind === 'missing') return `${hint.requestedByTitle || hint.requestedByName || hint.requestedBy || 'A mod'} needs ${hint.name || hint.modId}, which isn't installed`;
+  if (hint.kind === 'memory') return 'Minecraft ran out of memory';
+  return 'Something stopped the game';
+}
+
+/** A plain-words card above the log: why the game didn't start, and one button that fixes it. */
+function logHintCard(instId, hint) {
+  const body = h('div', { class: 'grow' });
+  const card = h('div', { class: 'notice warn log-hint' }, icon('alert'), body);
+  const draw = (done) => {
+    let text = '';
+    let action = null;
+    if (hint.kind === 'incompatible') {
+      const title = hint.file?.title || hint.modId;
+      text = `The modpack stopped loading on purpose${hint.reason ? `: "${hint.reason.replace(/\.$/, '')}".` : '.'} `;
+      if (done || (hint.file && !hint.file.enabled)) text += `${title} is turned off now. Close the game and press Play again.`;
+      else if (hint.file) {
+        text += 'Turn it off, then press Play again.';
+        action = h('button', { class: 'btn sm primary', type: 'button', onclick: async () => {
+          try { await call('content:toggle', instId, hint.file.rel, false); toast(`${title} is turned off`, 'good'); draw(true); } catch (e) { toast(e.message, 'error'); }
+        } }, `Turn off ${title}`);
+      } else text += `Look for ${title} in the Content tab and turn it off.`;
+    } else if (hint.kind === 'missing') {
+      const dep = hint.name || hint.modId;
+      text = `Install ${dep} (for the same Minecraft version and mod loader), then press Play again.`;
+      action = h('button', { class: 'btn sm primary', type: 'button', onclick: () => go('browse', { instanceId: instId, type: 'mod', query: dep }) }, icon('compass', 14), `Find ${dep}`);
+    } else if (hint.kind === 'memory') {
+      text = 'Give this instance more memory in its Settings tab, then press Play again.';
+      action = h('button', { class: 'btn sm primary', type: 'button', onclick: () => go('instance', { id: instId, tab: 'settings' }) }, icon('sliders', 14), 'Open settings');
+    }
+    body.replaceChildren(h('b', null, logHintTitle(hint)), h('div', { class: 'small' }, text), action ? h('div', { style: { marginTop: '8px' } }, action) : null);
+  };
+  draw(false);
+  return card;
+}
+
+on('inst:hint', ({ id, name, hint }) => {
+  toast(`${name}: ${logHintTitle(hint)}. Open its Logs tab for the fix.`, 'warn', 9000);
+  const box = document.querySelector(`.log-hints[data-inst="${CSS.escape(String(id))}"]`);
+  if (box) box.append(logHintCard(id, hint));
+});
+
 async function renderLogsTab(inst, root) {
   const box = h('div', { class: 'log' });
+  const hintsBox = h('div', { class: 'log-hints', 'data-inst': inst.id });
+  call('inst:hints', inst.id).then((list) => { for (const hint of list) hintsBox.append(logHintCard(inst.id, hint)); }).catch(() => {});
   let auto = true;
   box.addEventListener('scroll', () => { auto = box.scrollTop + box.clientHeight >= box.scrollHeight - 30; });
   const add = (lines) => {
@@ -174,6 +221,7 @@ async function renderLogsTab(inst, root) {
       h('button', { class: 'btn', type: 'button', onclick: () => { navigator.clipboard.writeText([...box.children].map((c) => c.textContent).join('\n')); toast('Log copied'); } }, icon('copy'), 'Copy'),
       h('button', { class: 'btn', type: 'button', onclick: () => call('inst:openFolder', inst.id, 'logs') }, icon('folder'), 'Logs folder'),
       h('button', { class: 'btn', type: 'button', onclick: () => call('inst:openFolder', inst.id, 'crash-reports') }, icon('alert'), 'Crash reports')),
+    hintsBox,
     box);
 }
 

@@ -29,6 +29,7 @@ const { detectInstance, importInstance, scanLaunchers } = require('../core/conte
 const { listGameVersions } = require('../core/minecraft/versions');
 const { listLoaderVersions, pickDefault, LOADER_NAMES } = require('../core/loaders');
 const { prepareInstance, launch } = require('../core/minecraft/launch');
+const { createHintDetector, attachFiles } = require('../core/minecraft/crashhints');
 const { shortId, sniffImage } = require('../core/util');
 const { loadBuildConfig } = require('../core/build-config');
 const { HttpError, describeError } = require('../core/http');
@@ -48,6 +49,7 @@ let win = null;
 const bgDir = () => path.join(ctx.root, 'appearance'); // the chosen background picture (copied here)
 let ctx; let accounts; let skins; let instances; let sources; let content; let templates; let modpacks; let home; let news; let packlink; let errorLog;
 const running = new Map();
+const lastHints = new Map(); // instance id -> plain-words reasons the last run failed (kept after the game closes, until the next launch)
 const blockedSessions = new Map();
 let pendingOpenFiles = [];
 
@@ -207,6 +209,7 @@ function registerIpc() {
     return shell.openPath(p);
   });
   handle('inst:log', async (id) => running.get(id)?.log || []);
+  handle('inst:hints', async (id) => lastHints.get(String(id)) || []);
   handle('inst:kill', async (id) => {
     const r = running.get(id);
     if (r?.child) r.child.kill();
@@ -260,7 +263,17 @@ function registerIpc() {
       let pending = [];
       let flushTimer = null;
       const flush = () => { flushTimer = null; if (pending.length) { send('inst:log', { id, lines: pending }); pending = []; } };
+      lastHints.set(id, []);
+      const detector = createHintDetector();
+      const addHint = async (hint) => {
+        const items = await instances.listContent(id, 'mod').catch(() => []);
+        const full = attachFiles(hint, items);
+        lastHints.get(id)?.push(full);
+        send('inst:hint', { id, name: inst.name, hint: full });
+      };
       const onLog = (line) => {
+        const hint = detector.push(line);
+        if (hint) addHint(hint).catch(() => {});
         entry.log.push(line);
         if (entry.log.length > 8000) entry.log.splice(0, entry.log.length - 6000);
         pending.push(line);
@@ -270,6 +283,8 @@ function registerIpc() {
         gameDir: instances.gameDir(id),
         onLog,
         onExit: async ({ code, crashReport, playedMs }) => {
+          const last = detector.end();
+          if (last) await addHint(last).catch(() => {});
           flush();
           running.delete(id);
           const cur = await instances.get(id).catch(() => null);
