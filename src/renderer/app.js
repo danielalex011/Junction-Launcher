@@ -32,6 +32,7 @@ const NAV = [
 function renderNav() {
   const nav = $('#nav');
   nav.replaceChildren(...NAV.map((n) => h('button', {
+    'data-nav': n.id,
     class: `nav-btn ${state.view === n.id || (n.id === 'library' && state.view === 'instance') ? 'active' : ''}`,
     type: 'button',
     onclick: () => go(n.id),

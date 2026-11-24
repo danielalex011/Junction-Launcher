@@ -73,6 +73,26 @@ const SCENES = [
     })()`,
   },
   { name: 'settings', wait: 2000, js: "go('settings', { tab: 'storage' })" },
+  { name: 'appearance', wait: 2500, js: "go('settings', { tab: 'appearance' })" },
+  {
+    name: 'new-instance', wait: 500,
+    js: `(async () => {
+      await go('home');
+      await sleep(800);
+      newInstanceDialog();
+      await until(() => document.querySelector('#modal-root .modal'), 10000);
+      await sleep(2000);
+    })()`,
+  },
+  {
+    name: 'account-menu', wait: 500,
+    js: `(async () => {
+      await go('home');
+      await sleep(1500);
+      document.querySelector('#account-chip').click();
+      await sleep(600);
+    })()`,
+  },
 ];
 
 /** Runs in the page before each scene: replaces local paths and the demo account name, now and whenever the page changes. */

@@ -124,6 +124,15 @@ function select(options, value, onchange, attrs = {}) {
 }
 
 // ---------------------------------------------------------------- new instance dialog
+/** One plain sentence under the loader buttons, for people who have never heard of a "mod loader". */
+const LOADER_HINTS = {
+  vanilla: 'Plain Minecraft with no mods. Pick this if you just want to play.',
+  fabric: 'The most popular choice for mods: light and fast. A good pick if you are not sure.',
+  quilt: 'Works with most Fabric mods. Fewer mods are made only for it.',
+  forge: 'The classic mod loader, used by many big, older modpacks.',
+  neoforge: 'The newer branch of Forge. Pick it when a mod or modpack asks for NeoForge.',
+};
+
 async function newInstanceDialog(preset = {}) {
   let snapshots = Boolean(state.settings?.showSnapshots);
   let versions = await loadMcVersions(snapshots);
@@ -166,14 +175,18 @@ async function newInstanceDialog(preset = {}) {
       loaderVerWrap.replaceChildren(h('div', { class: 'notice warn' }, icon('alert'), e.message));
     }
   }
+  const loaderHint = h('div', { class: 'hint' });
+  const showLoaderHint = () => { loaderHint.textContent = LOADER_HINTS[loader] || ''; };
   const seg = h('div', { class: 'seg' }, Object.entries(LOADER).map(([k, label]) => h('button', {
     type: 'button', class: k === loader ? 'on' : '', onclick: (e) => {
       loader = k;
+      showLoaderHint();
       seg.querySelectorAll('button').forEach((b) => b.classList.toggle('on', b === e.currentTarget));
       autoName();
       loadLoaderVersions();
     },
   }, label)));
+  showLoaderHint();
   const snapToggle = h('label', { class: 'check small muted' }, h('input', {
     type: 'checkbox', checked: snapshots, onchange: async (e) => {
       snapshots = e.target.checked;
@@ -198,7 +211,7 @@ async function newInstanceDialog(preset = {}) {
     if (startMode === 'pack') { autoName(); return; } // the modpack decides
     if (t.mcVersion) { if (!versions.some((v) => v.id === t.mcVersion)) versions = [{ id: t.mcVersion, type: 'release' }, ...versions]; mc = t.mcVersion; renderMcSelect(); }
     const k = t.loader?.type;
-    if (k && LOADER[k]) { loader = k; seg.querySelectorAll('button').forEach((b) => b.classList.toggle('on', b.textContent === LOADER[k])); }
+    if (k && LOADER[k]) { loader = k; showLoaderHint(); seg.querySelectorAll('button').forEach((b) => b.classList.toggle('on', b.textContent === LOADER[k])); }
     nameTouched = false;
     autoName();
     loadLoaderVersions();
@@ -247,7 +260,7 @@ async function newInstanceDialog(preset = {}) {
       h('label', { class: 'field' }, 'Name', nameInput),
       (() => {
         gameFields.append(
-          h('div', { class: 'field' }, h('span', { class: 'small muted', style: { fontWeight: 600 } }, 'Mod loader'), seg),
+          h('div', { class: 'field' }, h('span', { class: 'small muted', style: { fontWeight: 600 } }, 'Mod loader'), seg, loaderHint),
           h('div', { class: 'form-grid' },
             h('label', { class: 'field' }, h('span', { class: 'row' }, h('span', { class: 'grow' }, 'Minecraft version'), snapToggle), mcSelectWrap),
             h('label', { class: 'field' }, 'Loader version', loaderVerWrap)),

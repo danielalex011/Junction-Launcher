@@ -15,6 +15,21 @@
 
 <p align="center"><sub>Windows · macOS · Linux. The pictures on this page use demo data.</sub></p>
 
+## Getting started
+
+New to Minecraft launchers? Four steps:
+
+1. **Install Junction.** Download the installer (`.exe` or `.msi`) or the zip from the Releases page and run it. Windows may say "Windows protected your PC" because the installer isn't code-signed yet: click **More info, then Run anyway**.
+2. **Sign in.** Click **Sign in** at the bottom left and use the Microsoft account you bought Minecraft Java Edition with. You sign in on Microsoft's own page, so your password never goes through Junction. (No Minecraft account? Browsing and installing still work.)
+3. **Make an instance.** An instance is its own copy of Minecraft with its own mods and worlds. Click **New instance** and keep the suggestions, or open **Browse**, pick a modpack and click **Install**. If you are not sure which mod loader to pick, **Fabric** is a good default; **Vanilla** means no mods.
+4. **Press Play.** The first launch downloads the game and the right Java for you, so it takes a few minutes.
+
+Press **Ctrl+K** any time to search your instances, mods and settings.
+
+Junction also has a one-minute guided tour built in: **Settings → About → Take the tour**, or press Ctrl+K and type *tour*.
+
+Want a tour of every page? Read the [guide](docs/GUIDE.md).
+
 ---
 
 ## Features

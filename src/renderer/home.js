@@ -26,6 +26,22 @@ async function refreshHome(token, force = false) {
   } catch { /* offline: keep showing the cache */ } finally { homeUi.refreshing = false; }
 }
 
+/** The three first steps for someone who has never used the launcher. The first one ticks itself once an account exists. */
+function getStartedSteps() {
+  const step1 = h('li', { class: 'gs-step' });
+  const draw = (hasAccount) => step1.replaceChildren(
+    h('span', { class: `gs-num${hasAccount ? ' done' : ''}` }, hasAccount ? icon('check', 13) : '1'),
+    h('span', { class: 'grow' }, hasAccount ? 'You are signed in.' : 'Sign in with the Microsoft account you bought Minecraft with.'),
+    hasAccount ? null : h('button', { class: 'btn sm primary', type: 'button', onclick: () => microsoftLogin() }, icon('login', 14), 'Sign in'));
+  draw(false);
+  call('accounts:list').then((r) => draw(r.accounts.length > 0)).catch(() => {});
+  return h('ol', { class: 'gs-steps', 'aria-label': 'First steps' },
+    step1,
+    h('li', { class: 'gs-step' }, h('span', { class: 'gs-num' }, '2'), h('span', { class: 'grow' }, 'Create an instance (a separate copy of Minecraft) or install a modpack.')),
+    h('li', { class: 'gs-step' }, h('span', { class: 'gs-num' }, '3'), h('span', { class: 'grow' }, 'Press Play. Junction downloads everything the game needs the first time.')),
+    h('li', { class: 'gs-tour' }, h('button', { class: 'btn ghost sm', type: 'button', onclick: () => startTour() }, icon('compass', 14), 'Take a quick tour of the app')));
+}
+
 function homeSection(title, sub, ...kids) {
   return h('section', { class: 'home-sec' },
     h('div', { class: 'home-sec-head' }, h('h2', null, title), sub || null),
@@ -147,7 +163,7 @@ const renderTokenNow = () => homeRenderToken;
 function drawHome(d, token) {
   homeRenderToken = token;
   const sections = [];
-  if (state.settings?.appearance && !state.settings.appearance.themeCardDismissed) sections.push(themeCard());
+  if (!d.empty && state.settings?.appearance && !state.settings.appearance.themeCardDismissed) sections.push(themeCard()); // a brand-new person sees the first steps, not the colour choices
 
   if (state.settings?.showNews !== false) {
     const host = h('div', { class: 'news-host' });
@@ -159,6 +175,7 @@ function drawHome(d, token) {
     sections.push(homeSection('Welcome to Junction', null, h('div', { class: 'empty' },
       h('h2', null, 'No instances yet'),
       h('div', null, 'Make your own, or install a modpack from Modrinth or CurseForge.'),
+      getStartedSteps(),
       h('div', { class: 'row wrap' },
         h('button', { class: 'btn primary lg', type: 'button', onclick: () => newInstanceDialog() }, icon('plus'), 'New instance'),
         h('button', { class: 'btn lg', type: 'button', onclick: () => go('browse', { type: 'modpack' }) }, icon('box'), 'Browse modpacks')))));

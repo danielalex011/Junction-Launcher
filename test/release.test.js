@@ -83,3 +83,24 @@ test('the CurseForge key follows a redirect only to CurseForge hosts, and downlo
   await ctx.http.download('https://api.curseforge.com/v1/away', dest, {}).catch(() => {});
   assert.ok(ctx.requestLog.filter((r) => r.url === 'https://elsewhere.example/steal').every((r) => r.headers['x-api-key'] === undefined));
 });
+
+test('first-run help for beginners: steps on an empty Home, plain account button, loader hints, README steps', () => {
+  const home = read('src', 'renderer', 'home.js');
+  assert.match(home, /!d\.empty && state\.settings\?\.appearance && !state\.settings\.appearance\.themeCardDismissed/, 'the theme card waits until there is an instance');
+  assert.match(home, /getStartedSteps\(\)/);
+  const acc = read('src', 'renderer', 'accounts.js');
+  assert.match(acc, /'Sign in'/);
+  assert.ok(!/Click to add one/.test(acc));
+  const dlg = read('src', 'renderer', 'dialogs.js');
+  for (const k of ['vanilla', 'fabric', 'quilt', 'forge', 'neoforge']) assert.match(dlg, new RegExp(`${k}: '`), `a hint for ${k}`);
+  assert.match(read('README.md'), /## Getting started[\s\S]*Sign in[\s\S]*New instance[\s\S]*Press Play/);
+});
+
+test('the guide only uses pictures that exist, and the README links to it', () => {
+  const guide = read('docs', 'GUIDE.md');
+  const pics = [...guide.matchAll(/src="screenshots\/([^"]+)"/g)].map((m) => m[1]);
+  assert.ok(pics.length >= 10, 'the guide shows the app');
+  for (const f of pics) assert.ok(fs.existsSync(path.join(root, 'docs', 'screenshots', f)), `${f} is missing`);
+  assert.match(read('README.md'), /\]\(docs\/GUIDE\.md\)/);
+  assert.ok(!/danie|gmail|C:\Users/i.test(guide), 'no personal data in the guide');
+});

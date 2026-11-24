@@ -13,10 +13,11 @@ async function renderAccountChip() {
     chip.replaceChildren(
       active ? avatar({ name: active.name, iconSrc: active.iconSrc }, 'xs') : h('div', { class: 'avatar xs', style: { background: 'var(--panel-3)', color: 'var(--muted)' } }, icon('user', 14)),
       h('div', { class: 'grow' },
-        h('div', { class: 'a-name ellipsis' }, active ? active.name : 'No account'),
-        h('div', { class: 'a-sub' }, active ? (active.type === 'msa' ? 'Microsoft' : 'Offline') : 'Click to add one')),
+        h('div', { class: 'a-name ellipsis' }, active ? active.name : 'Sign in'),
+        h('div', { class: 'a-sub' }, active ? (active.type === 'msa' ? 'Microsoft' : 'Offline') : 'to play')),
       icon('chevronDown', 14));
   } catch { /* ignore */ }
+  chip.title = 'Your Minecraft account: sign in, switch or add one';
   chip.onclick = () => (closeAccountMenu() ? null : openAccountMenu(chip));
 }
 
