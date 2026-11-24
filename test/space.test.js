@@ -54,7 +54,8 @@ test('diskSpace reads the real drive of a folder; checkSpace uses the data folde
   const ctx = await makeCtx();
   const a = await checkSpace(ctx, 1);
   assert.equal(a.needed, 1);
-  assert.equal(a.free, (await diskSpace(ctx.root)).free);
+  // two reads of a live drive: anything writing in between (a build, an update) moves it a little, so allow some slack
+  assert.ok(Math.abs(a.free - (await diskSpace(ctx.root)).free) < 64 * 1024 * 1024);
 });
 
 test('modpack size estimate: mrpack counts listed files plus overrides, skips client-unsupported files', async () => {
