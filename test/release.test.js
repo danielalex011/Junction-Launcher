@@ -57,3 +57,29 @@ test('build-config.json is ignored by git and not tracked; user data cannot be p
   assert.ok(pkg.build.files.includes('src/**/*') && pkg.build.files.includes('build-config.json'));
   assert.ok(!(pkg.build.extraResources || pkg.build.extraFiles), 'nothing is copied in from outside the project');
 });
+
+test('the CurseForge key follows a redirect only to CurseForge hosts, and downloads never drop to plain http', async () => {
+  const { makeCtx } = require('./helpers');
+  const hop = (to) => () => ({ status: 302, headers: { location: to } });
+  const ctx = await makeCtx([
+    ['GET', 'https://api.curseforge.com/v1/ok', hop('https://edge.forgecdn.net/files/a.jar')],
+    ['GET', 'https://edge.forgecdn.net/files/a.jar', () => ({ body: 'jar-bytes' })],
+    ['GET', 'https://api.curseforge.com/v1/away', hop('https://elsewhere.example/steal')],
+    ['GET', 'https://elsewhere.example/steal', () => ({ body: 'x' })],
+    ['GET', 'https://api.curseforge.com/v1/relative', hop('/v1/ok')],
+    ['GET', 'https://api.curseforge.com/v1/downgrade', hop('http://edge.forgecdn.net/files/a.jar')],
+    ['GET', 'https://api.curseforge.com/v1/loop', hop('https://api.curseforge.com/v1/loop')],
+  ], { cfKey: 'cf-secret-key-123' });
+  const keyOn = (u) => ctx.requestLog.filter((r) => r.url === u).map((r) => r.headers['x-api-key']);
+  assert.equal(await (await ctx.http.request('https://api.curseforge.com/v1/ok')).text(), 'jar-bytes');
+  assert.deepEqual(keyOn('https://edge.forgecdn.net/files/a.jar'), ['cf-secret-key-123'], 'CurseForge CDN still gets the key');
+  assert.equal(await (await ctx.http.request('https://api.curseforge.com/v1/away')).text(), 'x');
+  assert.deepEqual(keyOn('https://elsewhere.example/steal'), [undefined], 'a host that is not CurseForge never sees the key');
+  assert.equal(await (await ctx.http.request('https://api.curseforge.com/v1/relative')).text(), 'jar-bytes', 'relative redirects work');
+  await assert.rejects(ctx.http.request('https://api.curseforge.com/v1/downgrade', { retries: 0 }), /unencrypted/);
+  await assert.rejects(ctx.http.request('https://api.curseforge.com/v1/loop', { retries: 0 }), /too many times/);
+  // the same rule for file downloads
+  const dest = path.join(tmpDir(), 'a.jar');
+  await ctx.http.download('https://api.curseforge.com/v1/away', dest, {}).catch(() => {});
+  assert.ok(ctx.requestLog.filter((r) => r.url === 'https://elsewhere.example/steal').every((r) => r.headers['x-api-key'] === undefined));
+});

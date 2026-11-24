@@ -175,19 +175,42 @@ class Http {
     return h;
   }
 
+  /**
+   * fetch() that follows redirects itself, so the headers are worked out again for every address:
+   * the CurseForge key only ever goes to CurseForge's own hosts, even if one of them redirects somewhere else.
+   * Never follows a redirect from https to plain http. `extra` are the caller's own headers.
+   */
+  async fetchFollowing(url, { method = 'GET', extra = {}, body, signal } = {}) {
+    let cur = url; let verb = method; let payload = body;
+    for (let hop = 0; hop <= 8; hop++) {
+      const h = this.headersFor(cur, extra);
+      const res = await this.fetch(cur, { method: verb, headers: h, body: payload, signal, redirect: 'manual' });
+      const loc = res.status >= 300 && res.status < 400 ? res.headers && res.headers.get && res.headers.get('location') : null;
+      if (!loc) return res;
+      let next;
+      try { next = new URL(loc, cur); } catch { throw new Error('A download server sent a broken redirect.'); }
+      if (new URL(cur).protocol === 'https:' && next.protocol !== 'https:') throw new Error('A download server tried to move the download to an unencrypted address, so it was stopped.');
+      if (next.protocol !== 'https:' && next.protocol !== 'http:') throw new Error('A download server sent a redirect Junction does not follow.');
+      try { await res.body?.cancel?.(); } catch { /* nothing to release */ }
+      if (res.status === 303 || ((res.status === 301 || res.status === 302) && verb === 'POST')) { verb = 'GET'; payload = undefined; }
+      cur = next.toString();
+    }
+    throw new Error('A download server redirected too many times.');
+  }
+
   async request(url, { method = 'GET', headers = {}, body, json, retries = 2, timeout = 30000 } = {}) {
     let lastErr;
     for (let attempt = 0; attempt <= retries; attempt++) {
       const ac = new AbortController();
       const timer = setTimeout(() => ac.abort(new Error(`Timed out after ${timeout} ms: ${url}`)), timeout);
       try {
-        const h = this.headersFor(url, headers);
+        const extra = { ...headers };
         let payload = body;
         if (json !== undefined) {
-          h['Content-Type'] = 'application/json';
+          extra['Content-Type'] = 'application/json';
           payload = JSON.stringify(json);
         }
-        const res = await this.fetch(url, { method, headers: h, body: payload, signal: ac.signal, redirect: 'follow' });
+        const res = await this.fetchFollowing(url, { method, extra, body: payload, signal: ac.signal });
         if (!res.ok) {
           const text = await res.text().catch(() => '');
           const err = new HttpError(res.status, url, text, { retryAfter: parseRetryAfter(res.headers.get('retry-after')) });
@@ -275,7 +298,7 @@ class Http {
         if (gate) { await gate.acquire(); gated = true; }
         if (ac.signal.aborted) throw new Error('aborted');
         kick();
-        const res = await this.fetch(url, { headers: this.headersFor(url, headers), signal: ac.signal, redirect: 'follow' });
+        const res = await this.fetchFollowing(url, { extra: headers, signal: ac.signal });
         if (!res.ok) {
           const text = await res.text().catch(() => '');
           if (res.status === 401 && /forgecdn|curseforge/.test(url)) {
