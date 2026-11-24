@@ -82,12 +82,12 @@ class Accounts {
       const url = profile ? skinUrlOf(profile) : acc.skinUrl;
       if (!url) return;
       if (url === acc.skinUrl && acc.skinAt && fs.existsSync(this.skinFile(acc.id))) return;
+      if (!acc.skinUrl && !fs.existsSync(this.skinFile(acc.id))) { acc.skinUrl = url; await this.save(); } // remembered first, so a failed download is retried on the next start
       await downloadSkin(this.ctx, url, this.skinFile(acc.id));
       fs.rmSync(this.headFile(acc.id), { force: true });
-      acc.skinUrl = url;
       acc.skinAt = Date.now();
       await this.save();
-    } catch { /* offline, or no skin: keep the letter */ }
+    } catch (e) { console.warn(`Could not fetch the player head: ${e?.message || e}`); /* offline, or no skin: keep the letter */ }
   }
 
   /** Retries skins that are known but not on disk (for example after a failed download). Safe to call in the background. */

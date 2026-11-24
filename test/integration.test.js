@@ -438,7 +438,7 @@ test('Microsoft device-code sign-in, token refresh, and offline unlock', async (
     ['POST', 'https://user.auth.xboxlive.com/user/authenticate', () => ({ json: { Token: 'xbl' } })],
     ['POST', 'https://xsts.auth.xboxlive.com/xsts/authorize', () => ({ json: { Token: 'xsts', DisplayClaims: { xui: [{ uhs: 'uhs1' }] } } })],
     ['POST', 'https://api.minecraftservices.com/authentication/login_with_xbox', () => { mcCalls++; return { json: { access_token: jwt, expires_in: mcCalls === 1 ? 1 : 86400 } }; }],
-    ['GET', 'https://api.minecraftservices.com/minecraft/profile', () => ({ json: { id: 'abc123', name: 'DanielMC', skins: [{ state: 'ACTIVE', url: 'https://textures.minecraft.net/texture/abc' }] } })],
+    ['GET', 'https://api.minecraftservices.com/minecraft/profile', () => ({ json: { id: 'abc123', name: 'DanielMC', skins: [{ state: 'ACTIVE', variant: 'SLIM', url: 'http://textures.minecraft.net/texture/abc' }] } })],
     ['GET', 'https://textures.minecraft.net/texture/abc', () => ({ body: demoSkin() })],
   ];
   const ctx = await makeCtx(routes);
@@ -468,7 +468,10 @@ test('skin heads: only Mojang texture URLs, face + hat cropped, a failed downloa
   const { skinUrlOf, downloadSkin, composeHead } = require('../src/core/skin');
   assert.equal(skinUrlOf({ skins: [{ state: 'INACTIVE', url: 'https://textures.minecraft.net/texture/a' }, { state: 'ACTIVE', url: 'https://textures.minecraft.net/texture/b' }] }), 'https://textures.minecraft.net/texture/b');
   assert.equal(skinUrlOf({ skins: [{ state: 'ACTIVE', url: 'https://evil.example/texture/b' }] }), null);
-  assert.equal(skinUrlOf({ skins: [{ state: 'ACTIVE', url: 'http://textures.minecraft.net/texture/b' }] }), null);
+  // Mojang's profile API really returns http:// addresses (classic and slim alike): they are upgraded to https.
+  assert.equal(skinUrlOf({ skins: [{ state: 'ACTIVE', variant: 'SLIM', url: 'http://textures.minecraft.net/texture/b' }] }), 'https://textures.minecraft.net/texture/b');
+  assert.equal(skinUrlOf({ skins: [{ state: 'ACTIVE', url: 'ftp://textures.minecraft.net/texture/b' }] }), null);
+  assert.equal(skinUrlOf({ skins: [{ state: 'ACTIVE', url: 'http://evil.example/texture/b' }] }), null);
   assert.equal(skinUrlOf({}), null);
   const ctx = await makeCtx([
     ['GET', 'https://textures.minecraft.net/texture/good', () => ({ body: demoSkin() })],
@@ -491,11 +494,20 @@ test('skin heads: only Mojang texture URLs, face + hat cropped, a failed downloa
   assert.deepEqual([...head.subarray(0, 4)], [255, 0, 0, 255]);
   assert.deepEqual([...head.subarray(2 * 4, 2 * 4 + 4)], [0, 0, 255, 255], 'opaque hat pixel covers the face');
   assert.throws(() => composeHead(Buffer.alloc(16), 2, 2));
-  // A failed skin download never fails sign-in or launch.
+  // Old 64x32 skins and slim (Alex) skins use the same head area; arm width doesn't matter. Half-transparent hat blends.
+  const old = Buffer.alloc(64 * 32 * 4);
+  for (let y = 8; y < 16; y++) for (let x = 8; x < 16; x++) old.set([0, 200, 0, 255], (y * 32 * 2 + x) * 4);
+  old.set([200, 0, 0, 128], (8 * 64 + 40) * 4);
+  const oldHead = composeHead(old, 64, 32, 1);
+  assert.equal(oldHead.length, 8 * 8 * 4);
+  assert.deepEqual([...oldHead.subarray(4, 8)], [0, 200, 0, 255]);
+  assert.ok(oldHead[0] > 90 && oldHead[0] < 110 && oldHead[1] > 90 && oldHead[1] < 110, 'half-opaque hat blends with the face');
+  // A failed skin download never fails sign-in or launch, and is remembered so the next start retries it.
   const accounts = await new Accounts(ctx).load();
   const acc = { id: 'msa-z', type: 'msa', name: 'Z' };
-  await accounts.saveSkin(acc, { skins: [{ state: 'ACTIVE', url: 'https://textures.minecraft.net/texture/gone' }] });
+  await accounts.saveSkin(acc, { skins: [{ state: 'ACTIVE', url: 'http://textures.minecraft.net/texture/gone' }] });
   assert.equal(acc.skinAt, undefined);
+  assert.equal(acc.skinUrl, 'https://textures.minecraft.net/texture/gone');
 });
 
 test('Microsoft sign-in explains when Mojang has not approved the app', async () => {

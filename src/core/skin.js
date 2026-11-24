@@ -8,13 +8,18 @@ const SKIN_HOST = 'textures.minecraft.net';
 const MAX_SKIN_BYTES = 2 * 1024 * 1024;
 const PNG_MAGIC = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
 
-/** The URL of the active skin in a /minecraft/profile response, or null if it isn't on Mojang's texture server. */
+/**
+ * The URL of the active skin in a /minecraft/profile response, or null if it isn't on Mojang's texture server.
+ * Mojang's API hands out `http://textures.minecraft.net/...`; the server speaks https too, so the address is upgraded.
+ */
 function skinUrlOf(profile) {
   const skins = Array.isArray(profile?.skins) ? profile.skins : [];
   const skin = skins.find((s) => s && s.state === 'ACTIVE') || skins[0];
   try {
     const u = new URL(String(skin?.url || ''));
-    return u.protocol === 'https:' && u.hostname === SKIN_HOST ? u.toString() : null;
+    if (u.hostname !== SKIN_HOST || (u.protocol !== 'https:' && u.protocol !== 'http:')) return null;
+    u.protocol = 'https:';
+    return u.toString();
   } catch { return null; }
 }
 
