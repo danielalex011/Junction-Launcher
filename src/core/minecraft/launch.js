@@ -8,6 +8,7 @@ const { resolveVersion } = require('./versions');
 const { installVersion, clientJarPath, prepareLegacyAssets } = require('./install');
 const { javaFor } = require('./java');
 const { evaluateArgs, substitute, rulesAllow } = require('./rules');
+const { makeRedactor, createGameLogReader } = require('./gamelog');
 const { installLoader } = require('../loaders');
 const { exists, ensureDir, splitArgs } = require('../util');
 
@@ -129,29 +130,27 @@ function buildLaunchArgs(ctx, inst, prepared, creds, gameDir, assetsDir) {
   return [...jvm, ...custom, ...logging, version.mainClass, ...game];
 }
 
-/** Hides the access token when we log the command line. */
-function redact(args, token) {
-  return args.map((a) => (token && token.length > 8 && a.includes(token) ? a.split(token).join('<access token>') : a));
-}
-
 async function launch(ctx, inst, prepared, creds, { gameDir, onLog = () => {}, onExit = () => {} }) {
   await ensureDir(gameDir);
   const assetsDir = await prepareLegacyAssets(ctx, prepared.files.assets, gameDir);
   const args = buildLaunchArgs(ctx, inst, prepared, creds, gameDir, assetsDir);
+  // Never shown, not even in the Logs tab people copy into bug reports: the access token, the sign-in app ID, the Xbox user ID.
+  const hide = makeRedactor([[creds.accessToken, '<access token>'], [ctx.settings.get('msClientId'), '<client id>'], [creds.xuid, '<xuid>']]);
   onLog(`[Junction] Java: ${prepared.java}`);
   onLog(`[Junction] Launching ${prepared.version.id} as ${creds.name}${creds.offline ? ' (offline)' : ''}`);
-  onLog(`[Junction] Arguments: ${redact(args, creds.accessToken).join(' ')}`);
+  onLog(hide(`[Junction] Arguments: ${args.join(' ')}`));
   const started = Date.now();
   const child = spawn(prepared.java, args, { cwd: gameDir, windowsHide: false, env: { ...process.env } });
   const pipe = (stream) => {
     let buf = '';
+    const reader = createGameLogReader(onLog, hide); // log4j XML -> readable lines, secrets hidden (also the last, unfinished line)
     stream.on('data', (d) => {
       buf += d.toString();
       const lines = buf.split(/\r?\n/);
       buf = lines.pop();
-      for (const l of lines) onLog(redact([l], creds.accessToken)[0]);
+      for (const l of lines) reader.push(l);
     });
-    stream.on('end', () => { if (buf) onLog(buf); });
+    stream.on('end', () => { if (buf) reader.push(buf); buf = ''; reader.end(); });
   };
   pipe(child.stdout);
   pipe(child.stderr);

@@ -141,6 +141,17 @@ function instanceMenu(anchor, inst) {
 }
 
 // ----- logs tab
+/**
+ * The colour of one Logs-tab line. Lines from the game carry their real level ("[17:35:12] [Render thread/INFO]: …"),
+ * so an INFO line that merely mentions "ERROR" (like OpenGL's "type=ERROR" notes) stays plain. Other lines (stack traces, plain output) are judged by their words.
+ */
+function logLineClass(l) {
+  if (l.startsWith('[Junction]')) return 'l-j';
+  const lvl = /^\[\d\d:\d\d:\d\d\] \[[^\]]*\/(TRACE|DEBUG|INFO|WARN|ERROR|FATAL)\]:/.exec(l);
+  if (lvl) return lvl[1] === 'ERROR' || lvl[1] === 'FATAL' ? 'l-err' : lvl[1] === 'WARN' ? 'l-warn' : '';
+  return /\b(ERROR|FATAL)\b|(Exception|Error)\b/.test(l) ? 'l-err' : /\bWARN\b/.test(l) ? 'l-warn' : ''; // also java.lang.IllegalStateException, OutOfMemoryError
+}
+
 async function renderLogsTab(inst, root) {
   const box = h('div', { class: 'log' });
   let auto = true;
@@ -148,7 +159,7 @@ async function renderLogsTab(inst, root) {
   const add = (lines) => {
     const frag = document.createDocumentFragment();
     for (const l of lines) {
-      const cls = l.startsWith('[Junction]') ? 'l-j' : /\b(ERROR|FATAL|Exception)\b/.test(l) ? 'l-err' : /\bWARN\b/.test(l) ? 'l-warn' : '';
+      const cls = logLineClass(l);
       frag.append(h('div', { class: cls }, l));
     }
     box.append(frag);
