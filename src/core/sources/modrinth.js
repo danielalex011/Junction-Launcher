@@ -3,6 +3,7 @@
 const API = 'https://api.modrinth.com/v2';
 
 const enc = encodeURIComponent;
+const { niceName } = require('./categories');
 
 function normalizeHit(h) {
   return {
@@ -79,8 +80,16 @@ function normalizeVersion(v) {
 class Modrinth {
   constructor(ctx) { this.ctx = ctx; }
 
-  async search({ query = '', type = 'mod', gameVersion, loader, sort = 'relevance', page = 0, pageSize = 20 } = {}) {
+  /** Categories for one kind of project: [{ id: slug, label }]. Data packs are listed under mods on Modrinth. */
+  async categories(type = 'mod') {
+    const kind = type === 'datapack' ? 'mod' : type;
+    const list = await this.ctx.http.json(`${API}/tag/category`);
+    return list.filter((c) => c.project_type === kind).map((c) => ({ id: c.name, label: niceName(c.name) }));
+  }
+
+  async search({ query = '', type = 'mod', gameVersion, loader, sort = 'relevance', page = 0, pageSize = 20, category } = {}) {
     const facets = [[`project_type:${type}`]];
+    if (category) facets.push([`categories:${category}`]);
     if (gameVersion) facets.push([`versions:${gameVersion}`]);
     if (loader && loader !== 'vanilla' && (type === 'mod' || type === 'modpack')) {
       facets.push(loader === 'quilt' ? ['categories:quilt', 'categories:fabric'] : [`categories:${loader}`]);

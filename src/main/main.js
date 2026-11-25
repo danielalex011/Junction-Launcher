@@ -10,7 +10,7 @@ const { marked } = require('marked');
 const { createContext } = require('../core/context');
 const { Accounts } = require('../core/auth/accounts');
 const { Instances, isLinkedPack } = require('../core/instances');
-const { createSources, searchAll, compatibleLoaders } = require('../core/sources');
+const { createSources, searchAll, categoriesFor, compatibleLoaders } = require('../core/sources');
 const { News } = require('../core/news');
 const { DEFAULT_APPEARANCE, BG_FILE, windowBackground, normalizeAppearance } = require('../core/appearance');
 const Themes = require('../renderer/themes');
@@ -445,6 +445,7 @@ function registerIpc() {
 
   // --- browse
   handle('browse:search', async (params) => searchAll(ctx, sources, params));
+  handle('browse:categories', async (type) => categoriesFor(ctx, sources, String(type || 'mod')));
   handle('browse:project', async (source, id) => {
     const p = source === 'modrinth' ? await sources.modrinth.project(id) : await sources.curseforge.project(id);
     return { ...p, bodyHtml: renderBody(p), body: undefined };

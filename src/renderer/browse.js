@@ -2,7 +2,8 @@
 // The Browse page and project details. Plain script: shares one global scope with the other src/renderer files (load order is in index.html).
 
 // ---------------------------------------------------------------- browse
-const browseState = { type: 'mod', query: '', gameVersion: '', loader: '', sort: 'relevance', sources: ['modrinth', 'curseforge'], page: 0 };
+const browseState = { type: 'mod', query: '', gameVersion: '', loader: '', sort: 'relevance', sources: ['modrinth', 'curseforge'], page: 0, category: '' }; // category: the merged category's key, '' for all
+let browseCategories = []; // the merged list for the current tab: [{ key, label, modrinth, curseforge }]
 
 async function renderBrowse(params, token) {
   const s = state.settings || (state.settings = await call('settings:get'));
@@ -41,7 +42,8 @@ async function renderBrowse(params, token) {
     const myToken = token;
     if (!append) { browseState.page = 0; results.replaceChildren(loading('Searching Modrinth & CurseForge…')); more.replaceChildren(); }
     try {
-      const r = await call('browse:search', { ...browseState, pageSize: 20 });
+      const cat = browseState.category ? browseCategories.find((c) => c.key === browseState.category) : null;
+      const r = await call('browse:search', { ...browseState, category: cat ? { modrinth: cat.modrinth, curseforge: cat.curseforge } : undefined, pageSize: 20 });
       if (stale(myToken)) return;
       warnBox.replaceChildren(...r.warnings.map((w) => h('div', { class: 'notice warn' }, icon('alert'), w)));
       if (!append) { results.replaceChildren(); lastHits = []; bctx.cards = []; }
@@ -57,7 +59,7 @@ async function renderBrowse(params, token) {
 
   const typeSeg = h('div', { class: 'seg' }, Object.entries(TYPES).map(([k, l]) => h('button', {
     type: 'button', class: k === browseState.type ? 'on' : '', disabled: inst && k === 'modpack',
-    onclick: () => { browseState.type = k; if (k !== 'mod' && k !== 'modpack') browseState.loader = ''; else if (inst) browseState.loader = inst.loader?.type === 'vanilla' ? '' : inst.loader?.type; go('browse', { instanceId: inst?.id, type: k }); },
+    onclick: () => { browseState.type = k; browseState.category = ''; if (k !== 'mod' && k !== 'modpack') browseState.loader = ''; else if (inst) browseState.loader = inst.loader?.type === 'vanilla' ? '' : inst.loader?.type; go('browse', { instanceId: inst?.id, type: k }); },
   }, l)));
   const srcToggle = (src) => {
     const disabled = src === 'curseforge' && !info.cfConfigured;
@@ -81,6 +83,17 @@ async function renderBrowse(params, token) {
   const loaderFilter = browseState.type === 'mod' || browseState.type === 'modpack'
     ? select([{ value: '', label: 'Any loader' }, ...['fabric', 'quilt', 'forge', 'neoforge'].map((l) => ({ value: l, label: LOADER[l] }))], browseState.loader, (v) => { browseState.loader = v; doSearch(); }, { disabled: Boolean(inst) })
     : null;
+  // Category: the same idea on both sites, so one list. The names differ between Modrinth and CurseForge; the list is merged (see core/sources/categories.js).
+  const categoryFilter = select([{ value: '', label: 'All categories' }], '', (v) => { browseState.category = v; doSearch(); }, { 'aria-label': 'Category' });
+  browseCategories = [];
+  call('browse:categories', browseState.type).then((list) => {
+    if (stale(token)) return;
+    browseCategories = list;
+    const only = (c) => (c.modrinth && c.curseforge ? '' : c.modrinth ? ' (Modrinth only)' : ' (CurseForge only)');
+    categoryFilter.replaceChildren(...[{ value: '', label: 'All categories' }, ...list.map((c) => ({ value: c.key, label: `${c.label}${only(c)}` }))].map((o) => h('option', { value: o.value }, o.label)));
+    categoryFilter.value = list.some((c) => c.key === browseState.category) ? browseState.category : '';
+    if (categoryFilter.value !== browseState.category) browseState.category = '';
+  }).catch(() => { /* offline: the list just stays at "All categories" */ });
   const top = h('div', { class: 'browse-top' },
     inst ? h('div', { class: 'context-bar' }, avatar(inst, 'xs'), h('div', { class: 'grow' }, h('b', null, `Adding to ${inst.name}`), h('span', { class: 'muted' }, ` · ${instSubtitle(inst)}`)),
       h('button', { class: 'btn sm', type: 'button', onclick: () => go('instance', { id: inst.id, tab: browseState.type }) }, icon('arrowLeft', 14), 'Back to instance')) : null,
@@ -88,6 +101,7 @@ async function renderBrowse(params, token) {
     h('div', { class: 'filters' },
       select([{ value: '', label: 'All versions' }, ...versions.map((v) => ({ value: v.id, label: v.id }))], browseState.gameVersion, (v) => { browseState.gameVersion = v; doSearch(); }, { disabled: Boolean(inst) }),
       loaderFilter,
+      categoryFilter,
       select([{ value: 'relevance', label: 'Relevance' }, { value: 'downloads', label: 'Most downloads' }, { value: 'follows', label: 'Most followed' }, { value: 'updated', label: 'Recently updated' }, { value: 'newest', label: 'Newest' }], browseState.sort, (v) => { browseState.sort = v; doSearch(); }),
       h('div', { class: 'grow' }),
       srcToggle('modrinth'), srcToggle('curseforge')));

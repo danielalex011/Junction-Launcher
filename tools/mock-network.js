@@ -211,6 +211,21 @@ module.exports = async (url, opts = {}) => {
   if (/api\.curseforge\.com\/v1\/mods\/777001\/description/.test(url)) return json({ data: '<p>The same pack on both sites.</p>' });
   if (/api\.curseforge\.com\/v1\/mods\/777001$/.test(url)) return json({ data: twinCf() });
   if (/api\.curseforge\.com\/v1\/mods\/394468\/description/.test(url)) return json({ data: '<p>Rendering engine.</p>' });
+  // Browse categories (a short, realistic slice of what the two sites list)
+  if (url === 'https://api.modrinth.com/v2/tag/category') {
+    return json([
+      ...['adventure', 'decoration', 'economy', 'food', 'magic', 'mobs', 'optimization', 'storage', 'technology', 'utility', 'worldgen', 'cursed'].map((name) => ({ name, project_type: 'mod', icon: '', header: 'categories' })),
+      ...['adventure', 'combat', 'lightweight', 'magic', 'multiplayer', 'optimization', 'quests', 'technology'].map((name) => ({ name, project_type: 'modpack', icon: '', header: 'categories' })),
+      ...['16x', '32x', '64x', 'blocks', 'fonts', 'realistic', 'vanilla-like'].map((name) => ({ name, project_type: 'resourcepack', icon: '', header: 'categories' })),
+      ...['cartoon', 'fantasy', 'realistic', 'pbr'].map((name) => ({ name, project_type: 'shader', icon: '', header: 'categories' })),
+    ]);
+  }
+  const cfCat = url.match(/^https:\/\/api\.curseforge\.com\/v1\/categories\?gameId=432&classId=(\d+)$/);
+  if (cfCat) {
+    const cls = Number(cfCat[1]);
+    const names = { 6: ['Adventure and RPG', 'Magic', 'Technology', 'Utility & QoL', 'Performance', 'World Gen', 'Food', 'Storage'], 4471: ['Adventure and RPG', 'Magic', 'Quests', 'Combat / PvP'], 12: ['16x', '32x', '64x', 'Photo Realistic'], 6552: ['Fantasy', 'Realistic', 'Vanilla'], 6945: ['Adventure', 'Magic', 'Tech'] }[cls] || [];
+    return json({ data: [{ id: cls, name: 'Class', isClass: true }, ...names.map((name, i) => ({ id: cls * 10 + i, name, parentCategoryId: cls }))] });
+  }
   if (url.startsWith('https://api.curseforge.com/v1/mods/search') && url.includes('classId=4471')) return json({ pagination: { totalCount: 1 }, data: [twinCf()] });
   const slowFile = url.match(/^https:\/\/cdn\.modrinth\.com\/data\/SLOW\/files\/(\w)\.jar$/);
   if (slowFile && SLOW[slowFile[1]]) return slowResponse(slowFile[1], opts.signal);

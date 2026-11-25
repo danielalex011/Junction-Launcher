@@ -2,8 +2,8 @@
 // CurseForge API v1 client. Needs an API key (CurseForge for Studios console),
 // which is also sent on CDN downloads.
 const GAME_ID = 432;
-const CLASS = { mod: 6, modpack: 4471, resourcepack: 12, shader: 6552 };
-const CLASS_REV = { 6: 'mod', 4471: 'modpack', 12: 'resourcepack', 6552: 'shader' };
+const CLASS = { mod: 6, modpack: 4471, resourcepack: 12, shader: 6552, datapack: 6945 };
+const CLASS_REV = { 6: 'mod', 4471: 'modpack', 12: 'resourcepack', 6552: 'shader', 6945: 'datapack' };
 const LOADER_TYPE = { forge: 1, fabric: 4, quilt: 5, neoforge: 6 };
 const LOADER_NAMES = { forge: 'forge', fabric: 'fabric', quilt: 'quilt', neoforge: 'neoforge' };
 const RELEASE = { 1: 'release', 2: 'beta', 3: 'alpha' };
@@ -100,8 +100,16 @@ class CurseForge {
     return this.ctx.http.json(`${this.base}${pathname}`, { method: 'POST', json, headers: { Accept: 'application/json' } });
   }
 
-  async search({ query = '', type = 'mod', gameVersion, loader, sort = 'relevance', page = 0, pageSize = 20 } = {}) {
+  /** The main categories for one kind of project: [{ id, label }]. The sub-categories (Biomes under World Gen, and so on) are left out. */
+  async categories(type = 'mod') {
+    const classId = CLASS[type] || 6;
+    const r = await this.get(`/v1/categories?gameId=${GAME_ID}&classId=${classId}`);
+    return (r.data || []).filter((c) => !c.isClass && (!c.parentCategoryId || c.parentCategoryId === classId)).map((c) => ({ id: c.id, label: c.name }));
+  }
+
+  async search({ query = '', type = 'mod', gameVersion, loader, sort = 'relevance', page = 0, pageSize = 20, category } = {}) {
     const q = [`gameId=${GAME_ID}`, `classId=${CLASS[type] || 6}`, `pageSize=${pageSize}`, `index=${Math.min(page * pageSize, 9999 - pageSize)}`];
+    if (category) q.push(`categoryId=${enc(category)}`);
     if (query) q.push(`searchFilter=${enc(query)}`);
     if (gameVersion) q.push(`gameVersion=${enc(gameVersion)}`);
     if (loader && LOADER_TYPE[loader] && (type === 'mod' || type === 'modpack')) q.push(`modLoaderType=${LOADER_TYPE[loader]}`);
