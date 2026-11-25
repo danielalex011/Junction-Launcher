@@ -26,7 +26,7 @@ async function renderLibrary(_p, token) {
       const playedTip = inst.lastPlayed ? `Last played ${ago(inst.lastPlayed)}` : '';
       const crowded = chips.length >= 2; // with several chips the played text moves up under the name, so nothing in the footer is cut off
       const sub = crowded ? `${instSubtitle(inst)} · ${played}` : instSubtitle(inst);
-      return h('div', { class: `card${isCombined(inst) ? ' combined' : ''}`, onclick: () => go('instance', { id: inst.id }) },
+      return h('div', { class: `card${isCombined(inst) ? ' combined' : ''}`, onclick: () => go('instance', { id: inst.id }), oncontextmenu: (e) => instanceContextMenu(e, inst) },
         h('div', { class: 'c-top' }, instAvatar(inst),
           h('div', { class: 'grow' },
             h('div', { class: 'c-name', title: inst.name }, inst.name),

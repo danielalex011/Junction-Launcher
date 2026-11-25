@@ -95,6 +95,11 @@ async function installPackChecked(opts) {
   return r;
 }
 
+/** A "place" a menu can open at, such as the mouse pointer for a right-click. */
+function pointAnchor(x, y) {
+  return { getBoundingClientRect: () => ({ left: x, right: x, top: y, bottom: y, width: 0, height: 0 }) };
+}
+
 function popupMenu(anchor, items) {
   document.querySelectorAll('.menu').forEach((m) => m.remove());
   const menu = h('div', { class: 'menu' }, items.map((it) => (it === '-' ? h('hr') : h('button', {
@@ -106,10 +111,18 @@ function popupMenu(anchor, items) {
   const mh = menu.offsetHeight;
   const leftEdge = r.left + r.width / 2 < window.innerWidth / 2 ? r.left : r.right - mw; // open toward the middle of the window
   menu.style.left = `${Math.max(8, Math.min(leftEdge, window.innerWidth - mw - 8))}px`;
-  menu.style.top = `${r.bottom + mh + 6 > window.innerHeight ? r.top - mh - 6 : r.bottom + 6}px`;
-  setTimeout(() => document.addEventListener('mousedown', function off(e) {
-    if (!menu.contains(e.target)) { menu.remove(); document.removeEventListener('mousedown', off); }
-  }), 0);
+  const wanted = r.bottom + mh + 6 > window.innerHeight ? r.top - mh - 6 : r.bottom + 6;
+  menu.style.top = `${Math.max(8, Math.min(wanted, window.innerHeight - mh - 8))}px`; // never off the top or bottom of the window
+  const first = menu.querySelector('button');
+  setTimeout(() => {
+    const close = () => { menu.remove(); document.removeEventListener('mousedown', off, true); document.removeEventListener('keydown', esc, true); };
+    function off(e) { if (!menu.contains(e.target)) close(); }
+    function esc(e) { if (e.key === 'Escape') { e.preventDefault(); close(); } }
+    document.addEventListener('mousedown', off, true);
+    document.addEventListener('keydown', esc, true);
+    menu.addEventListener('click', close);
+  }, 0);
+  if (first && anchor.getBoundingClientRect().width === 0) first.focus(); // opened by right-click or the menu key: keyboard users can go straight in
 }
 
 function loading(text = 'Loading…') {

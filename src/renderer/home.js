@@ -72,7 +72,7 @@ function updateBadge(instanceId, info) {
 /** A compact instance card for the sideways row (also what the Library grid uses, with `badge` from the cache). */
 function instanceCard(inst, badge) {
   const open = () => go('instance', { id: inst.id });
-  return h('div', { class: `card srow-card inst-card${isCombined(inst) ? ' combined' : ''}`, tabindex: 0, role: 'link', title: instSubtitle(inst), onclick: open,
+  return h('div', { class: `card srow-card inst-card${isCombined(inst) ? ' combined' : ''}`, tabindex: 0, role: 'link', title: instSubtitle(inst), onclick: open, oncontextmenu: (e) => instanceContextMenu(e, inst),
     onkeydown: (e) => { if (e.key === 'Enter' && e.target === e.currentTarget) open(); } },
   h('div', { class: 'c-top' }, instAvatar(inst),
     h('div', { class: 'grow' },

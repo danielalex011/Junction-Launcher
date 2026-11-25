@@ -115,6 +115,27 @@ function iconMenu(anchor, inst) {
 }
 
 function instanceMenu(anchor, inst) {
+  popupMenu(anchor, instanceMenuItems(inst));
+}
+
+/** Right-click on an instance card: Play or Stop, Open, the folder, the logs, then everything the "…" menu offers. */
+function instanceContextMenu(e, inst) {
+  e.preventDefault();
+  e.stopPropagation();
+  const st = state.running.get(inst.id) || inst.state;
+  const first = st === 'running' ? { label: 'Stop', icon: 'stop', danger: true, onClick: () => call('inst:kill', inst.id) }
+    : st === 'preparing' ? null : { label: 'Play', icon: 'play', onClick: () => play(inst) };
+  popupMenu(pointAnchor(e.clientX, e.clientY), [
+    ...(first ? [first] : []),
+    { label: 'Open', icon: 'box', onClick: () => go('instance', { id: inst.id }) },
+    { label: 'Open game folder', icon: 'folder', onClick: () => call('inst:openFolder', inst.id) },
+    { label: 'Logs', icon: 'terminal', onClick: () => go('instance', { id: inst.id, tab: 'logs' }) },
+    '-',
+    ...instanceMenuItems(inst),
+  ]);
+}
+
+function instanceMenuItems(inst) {
   const items = [
     { label: 'Change picture…', icon: 'file', onClick: () => changeIcon(inst) },
     '-',
@@ -135,9 +156,9 @@ function instanceMenu(anchor, inst) {
     { label: 'Duplicate', icon: 'copy', onClick: async () => { const c = await call('inst:duplicate', inst.id); toast(`Created ${c.name}`, 'good'); go('instance', { id: c.id }); } },
     { label: 'Delete instance', icon: 'trash', danger: true, onClick: async () => {
       if (!(await confirmDialog(`Delete ${inst.name}?`, 'This deletes the instance folder including worlds, configs and mods. This cannot be undone.', 'Delete', true))) return;
-      try { await call('inst:delete', inst.id); go('library'); toast(`Deleted ${inst.name}`); } catch (e) { toast(e.message, 'error'); }
+      try { await call('inst:delete', inst.id); go(state.view === 'instance' ? 'library' : state.view); toast(`Deleted ${inst.name}`); } catch (e) { toast(e.message, 'error'); }
     } });
-  popupMenu(anchor, items);
+  return items;
 }
 
 // ----- logs tab

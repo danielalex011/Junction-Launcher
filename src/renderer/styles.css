@@ -380,7 +380,7 @@ details.adv > summary:hover { color: var(--text); }
 .spinner { width: 18px; height: 18px; border: 2px solid var(--panel-3); border-top-color: var(--accent); border-radius: 50%; animation: spin .8s linear infinite; flex: none; }
 @keyframes spin { to { transform: rotate(360deg); } }
 .loading { display: flex; gap: 10px; align-items: center; color: var(--muted); padding: 30px; justify-content: center; }
-.menu { position: fixed; z-index: 66; background: var(--panel-2); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 4px; min-width: 210px; box-shadow: 0 16px 40px rgba(0,0,0,.45); }
+.menu { position: fixed; max-height: calc(100vh - 16px); overflow-y: auto; z-index: 66; background: var(--panel-2); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 4px; min-width: 210px; box-shadow: 0 16px 40px rgba(0,0,0,.45); }
 .menu button { display: flex; width: 100%; gap: 9px; align-items: center; background: none; border: 0; padding: 8px 10px; border-radius: 5px; cursor: pointer; text-align: left; }
 .menu button:hover { background: var(--panel-3); }
 .menu button.danger { color: var(--bad); }
