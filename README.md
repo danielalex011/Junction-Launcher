@@ -92,7 +92,7 @@ Memory and Java per instance (with Generational ZGC and tuned G1 presets), downl
 
 ## Privacy and security
 
-- No ads and no analytics. Junction only talks to Mojang (game files and Java), Microsoft/Xbox (sign-in), Modrinth, CurseForge and the mod loader sites.
+- No ads and no analytics. Junction only talks to Mojang (game files and Java), Microsoft/Xbox (sign-in), Modrinth, CurseForge, the mod loader sites and GitHub. The GitHub request is the update check (the public release list of this repository); it carries no account, name or other identifier, and you can switch it off in *Settings → About → Updates*.
 - Sign-in tokens and API keys are encrypted with your operating system's keychain.
 - Every download is checked against its SHA-1/SHA-512 hash before it's used.
 - Modpacks can't write files outside their instance folder, and mod descriptions are shown in a sandbox with scripts disabled.
@@ -104,8 +104,23 @@ Junction is **pre-release**. Expect a few rough edges, and please report anythin
 
 - Forge for Minecraft versions older than 1.13 isn't supported (its installers can't run without a window). Fabric, Quilt and vanilla work on old versions.
 - Launchers installed to a non-default folder aren't found automatically. Use *Import → Browse for a folder…* for those.
-- Junction doesn't update itself yet. New versions are on the [Releases page](../../releases).
+- The installed version (the `.exe` installer) checks GitHub for new versions on startup and once a day, and asks before installing. The zip and the `.msi` don't update themselves: new versions are on the [Releases page](../../releases).
 - The installer isn't code-signed yet, so Windows may show "Windows protected your PC". Click **More info → Run anyway**.
+## Publishing a release (maintainer notes)
+
+1. Bump `version` in `package.json`, run `npm test`, commit and push to `main`.
+2. Close Junction, then `npm run dist:win`. This builds into `dist/` and never uploads anything (`--publish never`).
+3. On GitHub create a release: tag `v<version>` on `main`, title `Junction <version>`, tick **Pre-release** while Junction is pre-release (installed copies still see it: they accept pre-releases while the app is 0.x).
+4. Upload exactly these five files from `dist/`, and nothing else:
+   - `Junction-<version>-win-x64.exe` (the installer, and the file installed copies download)
+   - `Junction-<version>-win-x64.exe.blockmap` (lets installed copies download only what changed)
+   - `latest.yml` (the update feed: version, file name and SHA-512 checksum of the installer)
+   - `Junction-<version>-win-x64.msi`
+   - `Junction-<version>-win-x64.zip`
+
+   `latest.yml` and the installer must come from the **same** build: if you rebuild, upload all of them again. Installed copies refuse a download that doesn't match the checksum in `latest.yml`.
+5. Only the `.exe` build updates itself. The `.msi`, the zip and dev builds show "New versions are on the Releases page".
+
 ## Building from source
 
 Requires [Node.js](https://nodejs.org) 22 or newer.

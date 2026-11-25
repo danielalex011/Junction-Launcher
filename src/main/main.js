@@ -45,6 +45,7 @@ const { readLicenses } = require('../core/licenses');
 const { notificationFor } = require('../core/notify');
 
 const VERSION = require('../../package.json').version;
+const { UpdateManager, selfUpdateSupport } = require('../core/updates');
 let win = null;
 const bgDir = () => path.join(ctx.root, 'appearance'); // the chosen background picture (copied here)
 let ctx; let accounts; let skins; let instances; let sources; let content; let templates; let modpacks; let home; let news; let packlink; let errorLog;
@@ -157,6 +158,12 @@ function registerIpc() {
     canTranslucent: canTranslucent(),
     devBuild: isDevBuild(), // dev builds (npm start, deploy:dev) show the Advanced sign-in and CurseForge fields
   }));
+  handle('updates:state', async () => selfUpdates.state);
+  handle('updates:check', async () => selfUpdates.check({ manual: true }));
+  handle('updates:install', async () => {
+    if (running.size) throw new Error('Close Minecraft first, then install the update.');
+    return selfUpdates.install();
+  });
   handle('settings:get', async () => ctx.settings.publicView());
   handle('settings:set', async (patch) => ctx.settings.update(patch));
   handle('tasks:list', async () => ({ active: ctx.tasks.list(), history: ctx.tasks.getHistory() }));
@@ -799,6 +806,23 @@ function packFilesFromArgv(argv) {
   return argv.filter((a) => /\.(mrpack)$/i.test(a) && fs.existsSync(a));
 }
 
+let selfUpdates = null;
+/**
+ * Self-update, installed (NSIS) build only: dev builds, the zip and the MSI never load electron-updater and never make a request.
+ * The feed is GitHub's public release list (see "publish" in package.json); autoDownload and autoInstallOnAppQuit stay off, see core/updates.js.
+ */
+function initSelfUpdate() {
+  let support = selfUpdateSupport({ platform: process.platform, packaged: app.isPackaged, devBuild: isDevBuild(), exePath: app.getPath('exe'), productName: 'Junction' });
+  if (process.env.JUNCTION_FETCH_MOCK) support = { ok: false, reason: 'dev' }; // screenshot and test runs use a fake network: never ask GitHub
+  let updater = null;
+  if (support.ok) {
+    try { updater = require('electron-updater').autoUpdater; updater.logger = null; } catch { support = { ok: false, reason: 'dev' }; }
+  }
+  selfUpdates = new UpdateManager({ version: VERSION, updater, support, autoCheck: () => ctx.settings.get('checkForUpdates') !== false });
+  selfUpdates.on('state', (st) => send('updates:state', st));
+  selfUpdates.start();
+}
+
 /** npm start, or a folder made by deploy:dev (it has a dev-build.txt next to the exe). dist:win builds never have one. */
 function isDevBuild() {
   if (!app.isPackaged) return true;
@@ -937,6 +961,7 @@ app.whenReady().then(async () => {
   if (accounts.data.active) refreshHead(accounts.data.active); // every start: asks Mojang for the active account's skin
   pendingOpenFiles.push(...packFilesFromArgv(process.argv));
   registerIpc();
+  initSelfUpdate();
   createWindow();
 });
 

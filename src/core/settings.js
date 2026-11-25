@@ -27,6 +27,7 @@ function defaults() {
     confirmBeforeDelete: true,
     appearance: { ...DEFAULT_APPEARANCE }, // accent, background, corners, sidebar, size (see appearance.js)
     showNews: true, // Minecraft news carousel on Home
+    checkForUpdates: true, // the installed build looks for a new Junction on GitHub at startup and then daily (it still asks before installing)
     cfApiBase: 'https://api.curseforge.com',
   };
 }

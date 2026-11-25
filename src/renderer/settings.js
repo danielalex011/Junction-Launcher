@@ -144,7 +144,7 @@ function settingsGeneral(s, info, auto) {
         : h('p', null, 'CurseForge requires an API key for search and downloads. Get one free from the CurseForge for Studios console. It\'s stored encrypted. Without a key, Junction works with Modrinth only.'),
       s.builtin_cfApiKey ? (state.info?.devBuild ? h('details', { class: 'adv', open: Boolean(s.has_cfApiKey) }, h('summary', null, 'Advanced: use your own CurseForge API key'), cfField, cfHint) : null) : [cfField, cfHint]),
     h('div', { class: 'section' }, h('h3', null, 'Privacy'),
-      h('p', { style: { marginBottom: 0 } }, 'No ads, no telemetry, no account needed to browse. Junction only talks to Mojang, Microsoft (sign-in), Modrinth, CurseForge and the loader download sites.')),
+      h('p', { style: { marginBottom: 0 } }, 'No ads, no telemetry, no account needed to browse. Junction only talks to Mojang, Microsoft (sign-in), Modrinth, CurseForge, the loader download sites and GitHub (to look for a new version of Junction: it asks for the public release list and sends no account, name or other identifier).')),
   ];
 }
 
@@ -411,11 +411,12 @@ function settingsAbout(s, info, auto) {
       h('p', null, 'A Minecraft launcher for Modrinth and CurseForge. No ads, no telemetry.'),
       h('label', { class: 'field', style: { maxWidth: '320px' } }, 'Update channel',
         select(CHANNELS, s.updateChannel || 'alpha', (v) => auto.queue({ updateChannel: v })),
-        h('span', { class: 'hint' }, 'Which versions of your mods and modpacks count as updates. Junction itself does not update on its own yet: new versions are on GitHub.')),
+        h('span', { class: 'hint' }, 'Which versions of your mods and modpacks count as updates. (Updates to Junction itself are under Updates below.)')),
       h('div', { class: 'row wrap', style: { marginTop: '14px' } },
         h('button', { class: 'btn', type: 'button', onclick: () => call('shell:open', REPO_URL) }, icon('external', 14), 'GitHub repository'),
         h('button', { class: 'btn', type: 'button', onclick: () => call('shell:open', `${REPO_URL}/releases`) }, icon('external', 14), 'Releases'),
         h('button', { class: 'btn', type: 'button', onclick: () => call('shell:open', `${REPO_URL}/issues`) }, icon('external', 14), 'Report a problem'))),
+    selfUpdateSection(s, info, auto),
     h('div', { class: 'section' }, h('h3', null, 'Tour'),
       h('p', null, 'A short walk through the sidebar: what each part does.'),
       h('button', { class: 'btn', type: 'button', onclick: () => startTour() }, icon('compass', 14), 'Take the tour')),

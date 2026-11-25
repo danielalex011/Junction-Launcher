@@ -3,7 +3,7 @@
 // fixed API — no Node, no filesystem, no arbitrary IPC.
 const { contextBridge, ipcRenderer, webUtils } = require('electron');
 
-const EVENTS = new Set(['task:update', 'task:history', 'inst:log', 'inst:state', 'blocked:update', 'blocked:complete', 'app:openFiles', 'accounts:changed', 'inst:hint']);
+const EVENTS = new Set(['task:update', 'task:history', 'inst:log', 'inst:state', 'blocked:update', 'blocked:complete', 'app:openFiles', 'accounts:changed', 'inst:hint', 'updates:state']);
 
 contextBridge.exposeInMainWorld('junction', {
   async call(channel, ...args) {

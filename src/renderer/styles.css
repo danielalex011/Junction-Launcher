@@ -819,3 +819,10 @@ body.sb-compact .acct-wrap .theme-btn { width: 100%; height: 34px; }
 .log-hints:empty { display: none; }
 .log-hint { margin: 0; align-items: flex-start; }
 .log-hint b { display: block; margin-bottom: 2px; }
+
+/* ---------- Junction's own update bar (bottom of the main area; only the installed build shows it) ---------- */
+.update-bar { position: fixed; left: 220px; right: 0; bottom: 16px; z-index: 45; display: flex; justify-content: center; padding: 0 16px; pointer-events: none; }
+.update-bar[hidden] { display: none; }
+.update-bar-in { pointer-events: auto; display: flex; align-items: center; gap: 12px; flex-wrap: wrap; max-width: 760px; background: var(--panel-2); border: 1px solid color-mix(in srgb, var(--accent) 45%, var(--border)); border-radius: var(--radius); padding: 10px 12px 10px 14px; box-shadow: 0 12px 40px rgba(0, 0, 0, .35); }
+.update-bar-in > .ico { color: var(--accent); display: grid; }
+.update-bar .ub-text { flex: 1; min-width: 180px; font-size: 13px; }

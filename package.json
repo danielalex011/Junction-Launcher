@@ -1,13 +1,13 @@
 {
   "name": "junction-launcher",
-  "version": "0.1.51",
+  "version": "0.1.52",
   "description": "A Minecraft launcher that installs mods and modpacks from both Modrinth and CurseForge. No ads, no telemetry.",
   "main": "src/main/main.js",
   "scripts": {
     "start": "electron .",
     "test": "node --test test/*.test.js",
     "test:quiet": "node --test --test-reporter=./tools/quiet-reporter.js test/*.test.js",
-    "dist:win": "electron-builder --win",
+    "dist:win": "electron-builder --win --publish never",
     "screenshots": "node tools/screenshots.js",
     "deploy:dev": "node tools/deploy-dev.js",
     "vendor": "node tools/vendor.js",
@@ -18,6 +18,7 @@
   "license": "MIT",
   "dependencies": {
     "adm-zip": "^0.6.1",
+    "electron-updater": "^6.8.11",
     "marked": "^18.2.1",
     "sql.js": "^1.17.0"
   },
@@ -66,6 +67,13 @@
       ],
       "icon": "build/icon.png"
     },
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "danielalex011",
+        "repo": "Junction-Launcher"
+      }
+    ],
     "nsis": {
       "oneClick": false,
       "allowToChangeInstallationDirectory": true
