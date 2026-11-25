@@ -66,19 +66,18 @@ test('every one of the five tabs gets a merged list, and the list is kept for a 
   assert.equal(ctx.requestLog.length, before, 'second ask is from memory');
 });
 
-test('a search passes each site its own category, and a site without the category is left out with a note', async () => {
+test('a search passes each site its own category, and a site without the category is left out', async () => {
   const { ctx, sources } = await world();
-  const r = await searchAll(ctx, sources, { type: 'mod', sort: 'downloads', sources: ['modrinth', 'curseforge'], category: { modrinth: 'adventure', curseforge: 422 }, page: 0, pageSize: 20 });
+  const r = await searchAll(ctx, sources, { type: 'mod', sort: 'downloads', sources: ['modrinth', 'curseforge'], categories: [{ modrinth: 'adventure', curseforge: 422 }], page: 0, pageSize: 20 });
   const mr = decodeURIComponent(ctx.requestLog.find((x) => /modrinth\.com\/v2\/search/.test(x.url)).url);
   assert.ok(mr.includes('["categories:adventure"]'), mr);
   assert.ok(ctx.requestLog.find((x) => /curseforge\.com\/v1\/mods\/search/.test(x.url)).url.includes('categoryId=422'));
   assert.deepEqual(r.searched.sort(), ['curseforge', 'modrinth']);
   assert.deepEqual(r.warnings, []);
   ctx.requestLog.length = 0;
-  const one = await searchAll(ctx, sources, { type: 'mod', sources: ['modrinth', 'curseforge'], category: { modrinth: 'cursed', curseforge: null }, page: 0, pageSize: 20 });
+  const one = await searchAll(ctx, sources, { type: 'mod', sources: ['modrinth', 'curseforge'], categories: [{ modrinth: 'cursed', curseforge: null }], page: 0, pageSize: 20 });
   assert.deepEqual(one.searched, ['modrinth']);
   assert.ok(!ctx.requestLog.some((x) => /curseforge\.com\/v1\/mods\/search/.test(x.url)), 'CurseForge is not asked');
-  assert.match(one.warnings[0], /CurseForge has no such category, so only Modrinth is searched/);
   const none = await searchAll(ctx, sources, { type: 'mod', sources: ['modrinth', 'curseforge'], page: 0, pageSize: 20 });
   assert.ok(!decodeURIComponent(ctx.requestLog.at(-2).url + ctx.requestLog.at(-1).url).includes('categoryId'), 'no category, no filter');
   assert.equal(none.hits.length, 2);
@@ -90,12 +89,56 @@ test('the Data packs tab searches CurseForge data packs (class 6945), not mods',
   assert.match(ctx.requestLog.at(-1).url, /classId=6945/);
 });
 
-test('the Browse page has a category list for every tab, resets it when you change tab, and sends the right ids', () => {
-  const b = fs.readFileSync(path.join(__dirname, '..', 'src', 'renderer', 'browse.js'), 'utf8');
+const rd = (...p) => fs.readFileSync(path.join(__dirname, '..', ...p), 'utf8');
+
+test('the Browse page has a filter panel with Loader, Category and Environment sections that remember being collapsed', () => {
+  const b = rd('src', 'renderer', 'browse.js');
   assert.match(b, /browse:categories', browseState\.type/);
-  assert.match(b, /All categories/);
-  assert.match(b, /\(Modrinth only\)/);
-  assert.match(b, /browseState\.type = k; browseState\.category = '';/);
-  assert.match(b, /category: cat \? \{ modrinth: cat\.modrinth, curseforge: cat\.curseforge \} : undefined/);
-  assert.match(fs.readFileSync(path.join(__dirname, '..', 'src', 'main', 'main.js'), 'utf8'), /handle\('browse:categories'/);
+  for (const w of ["section('loader', 'Loader'", "section('category', 'Category'", "section('env', 'Environment'"]) assert.ok(b.includes(w), w);
+  assert.match(b, /localStorage\.getItem\('junction\.browsePanel'\)/);
+  assert.match(b, /'aria-expanded': String\(!collapsed\)/, 'the section heads say whether they are open');
+  assert.match(b, /browseState\.type = k; browseState\.categories = \[\]; browseState\.environment = '';/, 'a new tab starts without picks');
+  assert.match(b, /categories: pickedCats\(\)\.map\(\(c\) => \(\{ modrinth: c\.modrinth, curseforge: c\.curseforge \}\)\)/);
+  assert.match(rd('src', 'main', 'main.js'), /handle\('browse:categories'/);
+  assert.ok(!/select\(\[\{ value: '', label: 'All categories' \}\]/.test(b), 'the old dropdown is gone');
+});
+
+test('category tiles: two columns, multi-select with a checkmark, groups with site dots, first 6 then "+N more", search above 12', () => {
+  const b = rd('src', 'renderer', 'browse.js');
+  const css = rd('src', 'renderer', 'styles.css');
+  assert.match(css, /\.tiles\.two \{[^}]*grid-template-columns: 1fr 1fr/);
+  assert.match(b, /'aria-pressed': String\(on\)/);
+  assert.match(b, /on \? icon\('check', 13\) : null/, 'selected is not only a colour');
+  for (const w of ["'Both sites'", "'Modrinth only'", "'CurseForge only'", 'dots(sites)', 'all.length > 6', '`+${hidden} more`', 'list.length <= 12']) assert.ok(b.includes(w), w);
+  assert.match(css, /\.dot\.modrinth \{ background: var\(--mr\)/);
+  assert.match(css, /\.dot\.curseforge \{ background: var\(--cf\)/);
+});
+
+test('picked filters show as removable chips with Clear all, and a plain note says when a site is hidden', () => {
+  const b = rd('src', 'renderer', 'browse.js');
+  assert.match(b, /'aria-label': `Remove filter \$\{label\}`/);
+  assert.ok(b.includes("'Clear all'"));
+  assert.match(b, /results are hidden\./);
+  assert.match(b, /can't filter by client or server side/);
+  assert.match(b, /No single site has all of these together/);
+});
+
+test('the filter panel uses theme variables only (no colour literals) and collapses behind a Filters button on narrow windows', () => {
+  const css = rd('src', 'renderer', 'styles.css');
+  const block = css.slice(css.indexOf('/* ---------- browse: filter panel'), css.indexOf('@media (max-width: 1100px)'));
+  assert.ok(block.length > 500);
+  assert.ok(!/#[0-9a-fA-F]{3,8}\b/.test(block) && !/rgba?\(/.test(block), 'no hardcoded colours');
+  assert.match(css, /@media \(max-width: 1100px\) \{[^}]*\.browse-layout \{ grid-template-columns: minmax\(0, 1fr\)[\s\S]*\.filters-toggle \{ display: inline-flex/);
+});
+
+test('category icons come from the bundled Lucide set with its licence, and every key has an icon or falls back to the generic one', () => {
+  const root = path.join(__dirname, '..', 'src', 'renderer', 'vendor');
+  assert.match(fs.readFileSync(path.join(root, 'LICENSE-lucide.txt'), 'utf8'), /ISC License/);
+  const src = fs.readFileSync(path.join(root, 'category-icons.js'), 'utf8');
+  const icons = new Function(`${src}; return { CATEGORY_ICONS, CATEGORY_ICON_GENERIC };`)();
+  assert.ok(Object.keys(icons.CATEGORY_ICONS).length > 50 && icons.CATEGORY_ICON_GENERIC.includes('<'));
+  for (const k of ['adventure', 'optimization', 'technology', 'worldgeneration', 'library', 'realistic', 'cursed', '16x']) assert.ok(icons.CATEGORY_ICONS[k], `an icon for ${k}`);
+  for (const v of Object.values(icons.CATEGORY_ICONS)) assert.ok(!/<script|on\w+=/i.test(v), 'plain shapes only');
+  assert.match(rd('src', 'renderer', 'index.html'), /vendor\/category-icons\.js/);
+  assert.match(rd('tools', 'vendor.js'), /LICENSE-lucide\.txt/);
 });

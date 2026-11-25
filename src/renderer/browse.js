@@ -2,8 +2,30 @@
 // The Browse page and project details. Plain script: shares one global scope with the other src/renderer files (load order is in index.html).
 
 // ---------------------------------------------------------------- browse
-const browseState = { type: 'mod', query: '', gameVersion: '', loader: '', sort: 'relevance', sources: ['modrinth', 'curseforge'], page: 0, category: '' }; // category: the merged category's key, '' for all
+const browseState = { type: 'mod', query: '', gameVersion: '', loader: '', sort: 'relevance', sources: ['modrinth', 'curseforge'], page: 0, categories: [], environment: '' }; // categories: the picked merged categories' keys (a project must match all); environment: '' | 'client' | 'server'
 let browseCategories = []; // the merged list for the current tab: [{ key, label, modrinth, curseforge }]
+
+// What the filter panel remembers between visits: which sections are collapsed and whether the panel is open on a narrow window.
+function browseUiGet() { try { return JSON.parse(localStorage.getItem('junction.browsePanel') || '{}') || {}; } catch { return {}; } }
+function browseUiSet(patch) { try { localStorage.setItem('junction.browsePanel', JSON.stringify({ ...browseUiGet(), ...patch })); } catch { /* private window: it just isn't remembered */ } }
+
+/** The picked categories as the merged entries (a key that is not in this tab's list is dropped). */
+function pickedCats() { return browseState.categories.map((k) => browseCategories.find((c) => c.key === k)).filter(Boolean); }
+/** Does this tab have an Environment filter? Only mods and modpacks, and only Modrinth can answer it. */
+const browseHasEnv = () => browseState.type === 'mod' || browseState.type === 'modpack';
+/** A category tile's icon: from the bundled Lucide set (vendor/category-icons.js), a generic tag when there is no match. Static SVG, never API text. */
+function catIcon(key, size = 16) {
+  const s = document.createElement('span');
+  s.className = 'ico';
+  s.innerHTML = `<svg width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${CATEGORY_ICONS[key] || CATEGORY_ICON_GENERIC}</svg>`;
+  return s;
+}
+/** Which of the sites the person has switched on can answer the current filters (same rule as the search itself). */
+function browseSitesNow(info) {
+  const on = browseState.sources.filter((x) => x !== 'curseforge' || info.cfConfigured);
+  const cats = pickedCats();
+  return on.filter((x) => cats.every((c) => c[x] !== null && c[x] !== undefined) && !(browseState.environment && browseHasEnv() && x === 'curseforge'));
+}
 
 async function renderBrowse(params, token) {
   const s = state.settings || (state.settings = await call('settings:get'));
@@ -42,8 +64,7 @@ async function renderBrowse(params, token) {
     const myToken = token;
     if (!append) { browseState.page = 0; results.replaceChildren(loading('Searching Modrinth & CurseForge…')); more.replaceChildren(); }
     try {
-      const cat = browseState.category ? browseCategories.find((c) => c.key === browseState.category) : null;
-      const r = await call('browse:search', { ...browseState, category: cat ? { modrinth: cat.modrinth, curseforge: cat.curseforge } : undefined, pageSize: 20 });
+      const r = await call('browse:search', { ...browseState, categories: pickedCats().map((c) => ({ modrinth: c.modrinth, curseforge: c.curseforge })), environment: browseHasEnv() ? browseState.environment : '', pageSize: 20 });
       if (stale(myToken)) return;
       warnBox.replaceChildren(...r.warnings.map((w) => h('div', { class: 'notice warn' }, icon('alert'), w)));
       if (!append) { results.replaceChildren(); lastHits = []; bctx.cards = []; }
@@ -59,7 +80,7 @@ async function renderBrowse(params, token) {
 
   const typeSeg = h('div', { class: 'seg' }, Object.entries(TYPES).map(([k, l]) => h('button', {
     type: 'button', class: k === browseState.type ? 'on' : '', disabled: inst && k === 'modpack',
-    onclick: () => { browseState.type = k; browseState.category = ''; if (k !== 'mod' && k !== 'modpack') browseState.loader = ''; else if (inst) browseState.loader = inst.loader?.type === 'vanilla' ? '' : inst.loader?.type; go('browse', { instanceId: inst?.id, type: k }); },
+    onclick: () => { browseState.type = k; browseState.categories = []; browseState.environment = ''; if (k !== 'mod' && k !== 'modpack') browseState.loader = ''; else if (inst) browseState.loader = inst.loader?.type === 'vanilla' ? '' : inst.loader?.type; go('browse', { instanceId: inst?.id, type: k }); },
   }, l)));
   const srcToggle = (src) => {
     const disabled = src === 'curseforge' && !info.cfConfigured;
@@ -80,32 +101,178 @@ async function renderBrowse(params, token) {
     type: 'search', placeholder: `Search ${TYPES[browseState.type].toLowerCase()} on Modrinth and CurseForge…`, value: browseState.query,
     oninput: (e) => { browseState.query = e.target.value; clearTimeout(searchTimer); searchTimer = setTimeout(() => doSearch(), 350); },
   });
-  const loaderFilter = browseState.type === 'mod' || browseState.type === 'modpack'
-    ? select([{ value: '', label: 'Any loader' }, ...['fabric', 'quilt', 'forge', 'neoforge'].map((l) => ({ value: l, label: LOADER[l] }))], browseState.loader, (v) => { browseState.loader = v; doSearch(); }, { disabled: Boolean(inst) })
-    : null;
-  // Category: the same idea on both sites, so one list. The names differ between Modrinth and CurseForge; the list is merged (see core/sources/categories.js).
-  const categoryFilter = select([{ value: '', label: 'All categories' }], '', (v) => { browseState.category = v; doSearch(); }, { 'aria-label': 'Category' });
+  // ---- the filter panel: Loader, Category and Environment sections, chips for what is picked, and a note when a site is left out
+  const chipsBox = h('div', { class: 'fchips' });
+  const noteBox = h('div');
+  const panelBody = h('div', { class: 'fp-body' });
+  const panel = h('aside', { class: `filter-panel${browseUiGet().panelOpen ? ' open' : ''}`, 'aria-label': 'Filters' }, panelBody);
+  const filtersBtn = h('button', {
+    type: 'button', class: 'btn filters-toggle', 'aria-expanded': String(Boolean(browseUiGet().panelOpen)),
+    onclick: () => { const open = !panel.classList.contains('open'); panel.classList.toggle('open', open); filtersBtn.setAttribute('aria-expanded', String(open)); browseUiSet({ panelOpen: open }); },
+  }, icon('sliders', 15), 'Filters');
+  const catSearch = h('input', { type: 'search', class: 'fp-search', placeholder: 'Find a category…', 'aria-label': 'Find a category', oninput: () => paintCats() });
+  const catBody = h('div');
+  const expandedGroups = new Set(); // which category groups show everything instead of the first 6
+  const sectionCounts = {}; // section id -> the little number in its heading
+
+  const SITE_NAME = { modrinth: 'Modrinth', curseforge: 'CurseForge' };
+  const dots = (sites) => h('span', { class: 'site-dots', 'aria-hidden': 'true' }, sites.map((x) => h('i', { class: `dot ${x}` })));
+  const loadedFocus = (id) => { const el = panel.querySelector(`[data-f="${id}"]`); if (el) el.focus(); };
+
+  const changed = (focusId) => { paintChips(); paintCats(); paintLoader(); paintEnv(); paintNote(); if (focusId) loadedFocus(focusId); doSearch(); };
+
+  function section(id, title, bodyEl) {
+    const collapsed = Boolean(browseUiGet().collapsed?.[id]);
+    const count = h('span', { class: 'count' });
+    sectionCounts[id] = count;
+    const body = h('div', { class: 'fp-sec-body', hidden: collapsed }, bodyEl);
+    const head = h('button', {
+      type: 'button', class: 'fp-sec-head', 'aria-expanded': String(!collapsed), 'aria-controls': `fp-${id}`,
+      onclick: () => {
+        const nowCollapsed = !body.hidden;
+        body.hidden = nowCollapsed;
+        head.setAttribute('aria-expanded', String(!nowCollapsed));
+        head.classList.toggle('collapsed', nowCollapsed);
+        browseUiSet({ collapsed: { ...(browseUiGet().collapsed || {}), [id]: nowCollapsed } });
+      },
+    }, h('span', { class: 'grow' }, title), count, icon('chevronDown', 15));
+    head.classList.toggle('collapsed', collapsed);
+    body.id = `fp-${id}`;
+    return h('section', { class: 'fp-sec' }, head, body);
+  }
+  const setCount = (id, n) => { const el = sectionCounts[id]; if (el) { el.textContent = n ? String(n) : ''; el.hidden = !n; } };
+
+  // Loader (mods and modpacks): one at a time. In an instance the loader is the instance's own, so it is shown but locked.
+  const loaderBody = h('div', { class: 'tiles' });
+  function paintLoader() {
+    loaderBody.replaceChildren(...[['', 'Any'], ...['fabric', 'quilt', 'forge', 'neoforge'].map((l) => [l, LOADER[l]])].map(([v, label]) => {
+      const on = browseState.loader === v;
+      return h('button', {
+        type: 'button', class: `tile${on ? ' on' : ''}`, 'aria-pressed': String(on), disabled: Boolean(inst), 'data-f': `loader-${v || 'any'}`,
+        onclick: () => { browseState.loader = v; changed(`loader-${v || 'any'}`); },
+      }, h('span', { class: 'tile-name' }, label), on ? icon('check', 13) : null);
+    }));
+    setCount('loader', browseState.loader ? 1 : 0);
+  }
+
+  // Environment (mods and modpacks): "works on the client / server". Only Modrinth knows this, so CurseForge is left out while it is set.
+  const envBody = h('div', null);
+  function paintEnv() {
+    envBody.replaceChildren(h('div', { class: 'tiles' }, [['', 'Any'], ['client', 'Client side'], ['server', 'Server side']].map(([v, label]) => {
+      const on = browseState.environment === v;
+      return h('button', {
+        type: 'button', class: `tile${on ? ' on' : ''}`, 'aria-pressed': String(on), 'data-f': `env-${v || 'any'}`,
+        onclick: () => { browseState.environment = v; changed(`env-${v || 'any'}`); },
+      }, h('span', { class: 'tile-name' }, label), on ? icon('check', 13) : null);
+    })), h('div', { class: 'fp-hint' }, dots(['modrinth']), 'Only Modrinth knows this.'));
+    setCount('env', browseState.environment ? 1 : 0);
+  }
+
+  // Category: groups by where the category exists, first 6 of each, a search field when the list is long.
+  const GROUPS = [
+    ['both', 'Both sites', ['modrinth', 'curseforge'], (c) => c.modrinth && c.curseforge],
+    ['modrinth', 'Modrinth only', ['modrinth'], (c) => c.modrinth && !c.curseforge],
+    ['curseforge', 'CurseForge only', ['curseforge'], (c) => c.curseforge && !c.modrinth],
+  ];
+  function toggleCat(key) {
+    const has = browseState.categories.includes(key);
+    browseState.categories = has ? browseState.categories.filter((k) => k !== key) : [...browseState.categories, key];
+    changed(`cat-${key}`);
+  }
+  function paintCats() {
+    const list = browseCategories;
+    const q = catSearch.value.trim().toLowerCase();
+    catSearch.hidden = list.length <= 12;
+    setCount('category', browseState.categories.length);
+    if (!list.length) { catBody.replaceChildren(h('div', { class: 'fp-hint' }, 'No categories to show right now.')); return; }
+    const out = [];
+    for (const [gid, title, sites, test] of GROUPS) {
+      const all = list.filter(test).filter((c) => !q || c.label.toLowerCase().includes(q));
+      if (!all.length) continue;
+      const open = q || expandedGroups.has(gid);
+      let shown = all;
+      if (!open && all.length > 6) shown = all.filter((c, i) => i < 6 || browseState.categories.includes(c.key)); // a picked one never hides
+      const hidden = all.length - shown.length;
+      out.push(h('div', { class: 'cat-group' },
+        h('div', { class: 'cat-group-head' }, dots(sites), title),
+        h('div', { class: 'tiles two' }, shown.map((c) => {
+          const on = browseState.categories.includes(c.key);
+          return h('button', {
+            type: 'button', class: `tile cat${on ? ' on' : ''}`, 'aria-pressed': String(on), 'data-f': `cat-${c.key}`, title: c.label,
+            onclick: () => toggleCat(c.key),
+          }, catIcon(c.key), h('span', { class: 'tile-name' }, c.label), on ? icon('check', 13) : null);
+        })),
+        hidden > 0 || (!q && expandedGroups.has(gid) && all.length > 6)
+          ? h('button', { type: 'button', class: 'more-btn', 'data-f': `more-${gid}`, 'aria-expanded': String(Boolean(open)), onclick: () => { if (expandedGroups.has(gid)) expandedGroups.delete(gid); else expandedGroups.add(gid); paintCats(); loadedFocus(`more-${gid}`); } },
+            hidden > 0 ? `+${hidden} more` : 'Show fewer')
+          : null));
+    }
+    catBody.replaceChildren(...(out.length ? out : [h('div', { class: 'fp-hint' }, 'No category has that name.')]));
+  }
+
+  // The chips above the results: everything that is picked, each removable, and "Clear all".
+  function paintChips() {
+    const chips = [];
+    const chip = (label, onremove, lead) => h('span', { class: 'fchip' }, lead || null, h('span', null, label),
+      h('button', { type: 'button', 'aria-label': `Remove filter ${label}`, onclick: onremove }, icon('x', 12)));
+    if (browseState.loader && !inst) chips.push(chip(LOADER[browseState.loader] || browseState.loader, () => { browseState.loader = ''; changed(); }));
+    for (const c of pickedCats()) chips.push(chip(c.label, () => { browseState.categories = browseState.categories.filter((k) => k !== c.key); changed(); }, catIcon(c.key, 13)));
+    if (browseState.environment && browseHasEnv()) chips.push(chip(browseState.environment === 'client' ? 'Client side' : 'Server side', () => { browseState.environment = ''; changed(); }));
+    chipsBox.hidden = !chips.length;
+    chipsBox.replaceChildren(...chips, chips.length ? h('button', {
+      type: 'button', class: 'btn ghost sm', onclick: () => { browseState.categories = []; browseState.environment = ''; if (!inst) browseState.loader = ''; changed(); },
+    }, 'Clear all') : null);
+  }
+
+  // Plain words when a site cannot answer what is picked, so a missing result is never a mystery.
+  function paintNote() {
+    const cats = pickedCats();
+    const on = browseState.sources.filter((x) => x !== 'curseforge' || info.cfConfigured);
+    const ok = browseSitesNow(info);
+    const msgs = [];
+    if (on.length && !ok.length) {
+      msgs.push('No single site has all of these together, so nothing can match. Remove one filter to see results.');
+    } else {
+      for (const x of on.filter((y) => !ok.includes(y))) {
+        const lacking = cats.filter((c) => c[x] === null || c[x] === undefined).map((c) => c.label);
+        const other = SITE_NAME[ok[0]];
+        if (lacking.length) msgs.push(`${lacking.join(', ')} ${lacking.length > 1 ? 'are' : 'is'} only on ${other}, so ${SITE_NAME[x]} results are hidden.`);
+        else if (browseState.environment && browseHasEnv()) msgs.push(`${SITE_NAME[x]} can't filter by client or server side, so its results are hidden.`);
+      }
+    }
+    noteBox.replaceChildren(...msgs.map((m) => h('div', { class: 'notice info', role: 'status' }, icon('info'), m)));
+  }
+
+  panelBody.append(
+    browseState.type === 'mod' || browseState.type === 'modpack' ? section('loader', 'Loader', loaderBody) : null,
+    section('category', 'Category', h('div', null, catSearch, catBody)),
+    browseHasEnv() ? section('env', 'Environment', envBody) : null);
   browseCategories = [];
+  paintLoader(); paintEnv(); paintCats(); paintChips(); paintNote();
   call('browse:categories', browseState.type).then((list) => {
     if (stale(token)) return;
     browseCategories = list;
-    const only = (c) => (c.modrinth && c.curseforge ? '' : c.modrinth ? ' (Modrinth only)' : ' (CurseForge only)');
-    categoryFilter.replaceChildren(...[{ value: '', label: 'All categories' }, ...list.map((c) => ({ value: c.key, label: `${c.label}${only(c)}` }))].map((o) => h('option', { value: o.value }, o.label)));
-    categoryFilter.value = list.some((c) => c.key === browseState.category) ? browseState.category : '';
-    if (categoryFilter.value !== browseState.category) browseState.category = '';
-  }).catch(() => { /* offline: the list just stays at "All categories" */ });
+    const had = browseState.categories.length;
+    browseState.categories = browseState.categories.filter((k) => list.some((c) => c.key === k));
+    paintCats(); paintChips(); paintNote();
+    if (had) doSearch(); // categories picked on an earlier visit only count now that the list is here
+  }).catch(() => { /* offline: the panel just has no categories */ });
+
   const top = h('div', { class: 'browse-top' },
     inst ? h('div', { class: 'context-bar' }, avatar(inst, 'xs'), h('div', { class: 'grow' }, h('b', null, `Adding to ${inst.name}`), h('span', { class: 'muted' }, ` · ${instSubtitle(inst)}`)),
       h('button', { class: 'btn sm', type: 'button', onclick: () => go('instance', { id: inst.id, tab: browseState.type }) }, icon('arrowLeft', 14), 'Back to instance')) : null,
     h('div', { class: 'row wrap' }, h('div', { class: 'search' }, icon('search', 18), input), typeSeg),
     h('div', { class: 'filters' },
       select([{ value: '', label: 'All versions' }, ...versions.map((v) => ({ value: v.id, label: v.id }))], browseState.gameVersion, (v) => { browseState.gameVersion = v; doSearch(); }, { disabled: Boolean(inst) }),
-      loaderFilter,
-      categoryFilter,
       select([{ value: 'relevance', label: 'Relevance' }, { value: 'downloads', label: 'Most downloads' }, { value: 'follows', label: 'Most followed' }, { value: 'updated', label: 'Recently updated' }, { value: 'newest', label: 'Newest' }], browseState.sort, (v) => { browseState.sort = v; doSearch(); }),
+      filtersBtn,
       h('div', { class: 'grow' }),
       srcToggle('modrinth'), srcToggle('curseforge')));
-  view().replaceChildren(top, h('div', { class: 'browse-body' }, warnBox, results, more));
+  view().replaceChildren(top, h('div', { class: 'browse-body' }, h('div', { class: 'browse-layout' }, h('div', { class: 'browse-main' }, chipsBox, noteBox, warnBox, results, more), panel)));
+  // the filter panel sticks just under the search bar, whatever height that is
+  const fitPanel = () => view().style.setProperty('--browse-top-h', `${top.offsetHeight}px`);
+  fitPanel();
+  if (typeof ResizeObserver !== 'undefined') new ResizeObserver(fitPanel).observe(top);
   setTimeout(() => input.focus(), 0);
   if (!info.cfConfigured && !s.dismissedCfHint) {
     warnBox.append(h('div', { class: 'notice info' }, icon('info'), h('div', { class: 'grow' }, 'Showing Modrinth only. Add your CurseForge API key in Settings to search both at once.'),

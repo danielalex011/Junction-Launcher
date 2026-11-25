@@ -7,6 +7,7 @@
 /** Different names for the same thing, after lower-casing and dropping everything but letters and digits. Left is the shared key. */
 const SAME = {
   adventureandrpg: 'adventure',
+  apiandlibrary: 'library',
   worldgen: 'worldgeneration', // Modrinth "worldgen" is shown as "World generation"; CurseForge says "World Gen"
   tech: 'technology',
   performance: 'optimization',

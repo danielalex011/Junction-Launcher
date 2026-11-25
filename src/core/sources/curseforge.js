@@ -107,9 +107,11 @@ class CurseForge {
     return (r.data || []).filter((c) => !c.isClass && (!c.parentCategoryId || c.parentCategoryId === classId)).map((c) => ({ id: c.id, label: c.name }));
   }
 
-  async search({ query = '', type = 'mod', gameVersion, loader, sort = 'relevance', page = 0, pageSize = 20, category } = {}) {
+  async search({ query = '', type = 'mod', gameVersion, loader, sort = 'relevance', page = 0, pageSize = 20, categories = [] } = {}) {
     const q = [`gameId=${GAME_ID}`, `classId=${CLASS[type] || 6}`, `pageSize=${pageSize}`, `index=${Math.min(page * pageSize, 9999 - pageSize)}`];
-    if (category) q.push(`categoryId=${enc(category)}`);
+    const ids = (categories || []).filter(Boolean);
+    if (ids.length === 1) q.push(`categoryId=${enc(ids[0])}`);
+    else if (ids.length > 1) q.push(`categoryIds=${enc(JSON.stringify(ids.map(Number)))}`); // CurseForge matches all of them
     if (query) q.push(`searchFilter=${enc(query)}`);
     if (gameVersion) q.push(`gameVersion=${enc(gameVersion)}`);
     if (loader && LOADER_TYPE[loader] && (type === 'mod' || type === 'modpack')) q.push(`modLoaderType=${LOADER_TYPE[loader]}`);

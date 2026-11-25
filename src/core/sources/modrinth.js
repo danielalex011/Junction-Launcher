@@ -87,9 +87,10 @@ class Modrinth {
     return list.filter((c) => c.project_type === kind).map((c) => ({ id: c.name, label: niceName(c.name) }));
   }
 
-  async search({ query = '', type = 'mod', gameVersion, loader, sort = 'relevance', page = 0, pageSize = 20, category } = {}) {
+  async search({ query = '', type = 'mod', gameVersion, loader, sort = 'relevance', page = 0, pageSize = 20, categories = [], environment } = {}) {
     const facets = [[`project_type:${type}`]];
-    if (category) facets.push([`categories:${category}`]);
+    for (const c of categories || []) if (c) facets.push([`categories:${c}`]); // all of them
+    if (environment && (type === 'mod' || type === 'modpack')) { const side = environment === 'server' ? 'server_side' : 'client_side'; facets.push([`${side}:required`, `${side}:optional`]); }
     if (gameVersion) facets.push([`versions:${gameVersion}`]);
     if (loader && loader !== 'vanilla' && (type === 'mod' || type === 'modpack')) {
       facets.push(loader === 'quilt' ? ['categories:quilt', 'categories:fabric'] : [`categories:${loader}`]);

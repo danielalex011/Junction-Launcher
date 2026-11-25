@@ -77,23 +77,29 @@ async function categoriesFor(ctx, sources, type) {
   return list;
 }
 
+/** The picked categories as [{ modrinth, curseforge }]. Also takes the older single `category`. */
+function pickedCategories(params) {
+  const list = Array.isArray(params.categories) ? params.categories : params.category && typeof params.category === 'object' ? [params.category] : [];
+  return list.filter((c) => c && typeof c === 'object').slice(0, 10);
+}
+
+/** Which sites can answer a search with these categories and environment (the same rule searchAll uses, so the Browse page can say it before searching). */
+function sitesFor(categories, environment, sites = ['modrinth', 'curseforge']) {
+  return sites.filter((s) => categories.every((c) => c[s] !== null && c[s] !== undefined) && !(environment && s === 'curseforge'));
+}
+
 async function searchAll(ctx, sources, params) {
   let wanted = (params.sources && params.sources.length ? params.sources : ['modrinth', 'curseforge'])
     .filter((s) => enabledSources(ctx, sources).includes(s));
   const warnings = [];
-  // A category is a name on each site; a site that has no such category can't be searched for it.
-  const cat = params.category && typeof params.category === 'object' ? params.category : null;
-  if (cat) {
-    const missing = wanted.filter((s) => cat[s] === null || cat[s] === undefined);
-    if (missing.length && missing.length < wanted.length) {
-      warnings.push(`${missing.map((s) => (s === 'modrinth' ? 'Modrinth' : 'CurseForge')).join(' and ')} has no such category, so only ${wanted.filter((s) => !missing.includes(s)).map((s) => (s === 'modrinth' ? 'Modrinth' : 'CurseForge')).join(' and ')} is searched.`);
-    }
-    if (missing.length < wanted.length) wanted = wanted.filter((s) => !missing.includes(s));
-  }
+  // Picked categories must ALL match, and each is a name on each site: a site that lacks one of them (or can't filter by environment) is left out.
+  const cats = pickedCategories(params);
+  const env = params.environment === 'client' || params.environment === 'server' ? params.environment : null;
+  wanted = wanted.filter((s) => cats.every((c) => c[s] !== null && c[s] !== undefined) && !(env && s === 'curseforge'));
   if ((params.sources || []).includes('curseforge') && !sources.curseforge.configured()) {
     warnings.push('CurseForge is off: add your CurseForge API key in Settings to search it.');
   }
-  const settled = await Promise.allSettled(wanted.map((s) => sources[s].search({ ...params, category: cat ? cat[s] : undefined })));
+  const settled = await Promise.allSettled(wanted.map((s) => sources[s].search({ ...params, categories: cats.map((c) => c[s]), environment: env })));
   const lists = [];
   const totals = {};
   settled.forEach((r, i) => {
@@ -111,4 +117,4 @@ async function searchAll(ctx, sources, params) {
   return { hits, totals, warnings, searched: wanted };
 }
 
-module.exports = { createSources, searchAll, categoriesFor, compatibleLoaders, interleaveAndMerge, enabledSources };
+module.exports = { createSources, searchAll, sitesFor, categoriesFor, compatibleLoaders, interleaveAndMerge, enabledSources };
